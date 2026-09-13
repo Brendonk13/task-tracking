@@ -72,6 +72,12 @@ class CommentIn(Schema):
         return value
 
 
+class NeedsHumanEyesIn(Schema):
+    value: bool
+    reason: str | None = None
+    actor_session_id: str
+
+
 class Actor(Schema):
     session_id: str
     name: str
@@ -98,6 +104,7 @@ class TicketListItem(Schema):
     title: str
     priority: Priority
     status: str | None
+    needs_human_eyes: bool
     linear_url: str | None
     project: str | None
     labels: list[str]

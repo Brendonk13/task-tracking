@@ -49,6 +49,7 @@ class Ticket(models.Model):
     status = models.ForeignKey(
         Status, null=True, blank=True, on_delete=models.PROTECT, related_name="tickets"
     )
+    needs_human_eyes = models.BooleanField(default=False)
     tags = models.ManyToManyField(Tag, related_name="tickets", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -58,6 +59,7 @@ class TimelineEntry(models.Model):
     FIELD_CHANGE = "field_change"
     STATUS_CHANGE = "status_change"
     COMMENT = "comment"
+    FLAG_CHANGE = "flag_change"
 
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="timeline")
     kind = models.CharField(max_length=20)

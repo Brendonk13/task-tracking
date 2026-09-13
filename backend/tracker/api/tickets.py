@@ -111,8 +111,11 @@ def list_tickets(
     request,
     sort: SortField = SortField.created_at,
     order: SortOrder = SortOrder.desc,
+    needs_human_eyes: bool | None = None,
 ):
     queryset = models.Ticket.objects.all()
+    if needs_human_eyes is not None:
+        queryset = queryset.filter(needs_human_eyes=needs_human_eyes)
     sort_key = sort.value
     if sort is SortField.priority:
         sort_key = "priority_rank"
@@ -164,6 +167,25 @@ def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
         body=payload.body,
     )
     ticket.save()  # A8: comments count as activity
+    return ticket
+
+
+@router.post("/{int:ticket_id}/needs-human-eyes", response=schemas.TicketDetail)
+def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEyesIn):
+    ticket = get_object_or_404(models.Ticket, id=ticket_id)
+    actor = actors.resolve_actor(payload.actor_session_id)
+    if ticket.needs_human_eyes == payload.value:
+        return ticket  # A6 no-op: same value, nothing written
+    ticket.needs_human_eyes = payload.value
+    ticket.save()
+    verb = "flagged" if payload.value else "cleared"
+    models.TimelineEntry.objects.create(
+        ticket=ticket,
+        kind=models.TimelineEntry.FLAG_CHANGE,
+        actor_session_id=payload.actor_session_id,
+        body=f"{actor['name']} {verb} needs human eyes",
+        reason=payload.reason,
+    )
     return ticket
 
 

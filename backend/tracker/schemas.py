@@ -39,6 +39,19 @@ class TicketCreate(Schema):
     labels: list[str] = []
     actor_session_id: str
 
+    @field_validator("project")
+    @classmethod
+    def blank_project_is_none(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    """``""`` (after stripping) means "no value" for optional string fields."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
 
 PATCH_NON_NULLABLE = ("title", "description", "priority", "labels")
 
@@ -54,6 +67,11 @@ class TicketPatch(Schema):
     project: str | None = None
     labels: list[str] | None = None
     actor_session_id: str
+
+    @field_validator("project")
+    @classmethod
+    def blank_project_is_none(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
 
     @model_validator(mode="after")
     def reject_null_on_non_nullable(self):
@@ -73,9 +91,9 @@ class StatusChangeIn(Schema):
     reason: str
     actor_session_id: str
 
-    @field_validator("status")
+    @field_validator("status", "reason")
     @classmethod
-    def strip_status(cls, value: str) -> str:
+    def strip(cls, value: str) -> str:
         return value.strip()
 
     @field_validator("status", "reason")
@@ -102,6 +120,11 @@ class NeedsHumanEyesIn(Schema):
     value: bool
     reason: str | None = None
     actor_session_id: str
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
 
 
 class Actor(Schema):

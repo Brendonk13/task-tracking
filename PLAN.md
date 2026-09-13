@@ -66,7 +66,7 @@ cd backend && uv run pytest -q
 cd frontend && pnpm test --run
 cd frontend && pnpm typecheck
 # contract drift (must be a no-op diff)
-cd frontend && pnpm gen:api && git diff --exit-code src/api/schema.d.ts
+make gen-api && git diff --exit-code frontend/src/api/schema.d.ts   # see A15
 # e2e (phase 8 only)
 cd frontend && pnpm e2e
 ```
@@ -197,9 +197,9 @@ Each row is one red → green cycle. "RED" is the test name the Test Writer must
 
 | # | Task | Agent | Done when |
 |---|---|---|---|
-| 0.1 | Architect reads this plan, produces `docs/ARCHITECT_MEMO.md` confirming or amending sections 1–3. Orchestrator applies amendments to this file before continuing. | Architect | memo committed |
+| 0.1 | Architect reads this plan, produces `docs/ARCHITECT_MEMO.md` confirming or amending sections 1–3. Orchestrator applies amendments to this file before continuing. **Done: see section 9.** | Architect | memo committed |
 | 0.2 | Backend scaffold: `uv init`, Django project, `tracker` app, ninja API mounted at `/api`, pytest-django configured, one trivial `test_openapi_is_served` that GETs `/api/openapi.json` and asserts 200. | Implementer | `uv run pytest` green |
-| 0.3 | Frontend scaffold: Vite React-TS, Tailwind, shadcn init, react-query provider, react-router, Vitest + RTL + MSW wired, `pnpm gen:api` script pointing at `http://localhost:8000/api/openapi.json`, one smoke test rendering `<App/>`. | Implementer | `pnpm test --run` and `pnpm typecheck` green |
+| 0.3 | Frontend scaffold: Vite React-TS, Tailwind, shadcn init, react-query provider, react-router, Vitest + RTL + MSW wired, `pnpm gen:api` script (`openapi-typescript openapi.json -o src/api/schema.d.ts`, see A15), one smoke test rendering `<App/>`. | Implementer | `pnpm test --run` and `pnpm typecheck` green |
 | 0.4 | Root `Makefile` or `justfile`: `dev` (both servers), `test`, `gen-api`, `check-contract`. | Implementer | commands work |
 
 ### Phase B1 — Sessions (backend)
@@ -237,8 +237,8 @@ Lane files: `test_statuses_api.py`, `test_timeline_api.py`
 | B3.1 | `test_built_in_statuses_are_listed` — `GET /statuses` returns the ten built-ins. | Status model, seed via data migration, GET |
 | B3.2 | `test_new_ticket_has_no_status` — GET a fresh ticket → `status is None`. | nullable FK |
 | B3.3 | `test_set_status_on_ticket_is_returned_as_current_status` — POST `{status:"planning", reason:"starting", actor}`; GET ticket → `status == "planning"`. | POST status endpoint |
-| B3.4 | `test_first_status_writes_timeline_entry_set_status_with_actor_name_and_reason` — body reads exactly `cool-willow set status to planning` (name from seeded generator); entry has `reason == "starting"`, `to_status == "planning"`, `from_status is None`. | status_change entry |
-| B3.5 | `test_changing_status_writes_changed_from_to_entry` — set `planning`, then POST `{status:"implementing-plan", ...}`; `status == "implementing-plan"`; latest entry body `cool-willow changed status from planning to implementing-plan`, `from_status == "planning"`. | server-derived from_status |
+| B3.4 | `test_first_status_writes_timeline_entry_set_status_with_actor_name_and_reason` — the test registers a session and reads `name` from the PUT response; body reads exactly `f"{name} set status to planning"` (A11); entry has `reason == "starting"`, `to_status == "planning"`, `from_status is None`. | status_change entry |
+| B3.5 | `test_changing_status_writes_changed_from_to_entry` — set `planning`, then POST `{status:"implementing-plan", ...}`; `status == "implementing-plan"`; latest entry body `f"{name} changed status from planning to implementing-plan"`, `from_status == "planning"`. | server-derived from_status |
 | B3.6 | `test_custom_status_is_created_on_first_use_and_then_listed` — `status:"waiting-on-vendor"`; `GET /statuses` now includes it with `is_builtin == false`. | custom statuses |
 | B3.7 | `test_setting_same_status_again_writes_no_timeline_entry` — POST `planning` twice; 200 both times; exactly one `status_change` entry. | no-op path |
 | B3.8 | `test_add_comment_appears_in_timeline_with_actor_name` — POST comments; timeline has kind `comment`, body verbatim, `actor.name`. | comments |
@@ -357,3 +357,26 @@ commit (`refactor(<lane>): ...`) with the suite green before and after.
 - Auth. The app is local and private.
 - Real-time updates (polling via react-query `refetchInterval` is acceptable if wanted).
 - Editing or deleting timeline entries. The timeline is append-only.
+
+## 9. Architect amendments (binding, 2026-09-12)
+
+`docs/ARCHITECT_MEMO.md` was produced in task 0.1. Its amendments **A1–A16 are binding** and
+override sections 1–3 wherever they conflict. Every Test Writer and Implementer must read the
+memo before touching a slice. Summary:
+
+- **A1** Actor sub-schema `{session_id, name, directory|null}`; `human` → `{"human","human",null}`; no resume button when directory is null.
+- **A2** Schema names: `Session, TicketListItem, TicketDetail, TimelineEntry, Actor, StatusItem, TicketsSummary`; requests `SessionIn, TicketCreate, TicketPatch, StatusChangeIn, CommentIn, NeedsHumanEyesIn`. `TimelineEntry` is one flat schema with nullable fields.
+- **A3** `POST /tickets` → 201 `TicketDetail`; all ticket mutations → 200 `TicketDetail`; list → plain array; check order 422 → 404 → 400.
+- **A4** PATCH is per-key replace with `exclude_unset`; one `field_change` per changed field; no-op writes nothing.
+- **A5** `field_change` body: `<name> changed <field> from <old> to <new>`; `(none)` for null/empty; description → `<name> changed description`.
+- **A6** `flag_change` body: `<name> flagged needs human eyes` / `<name> cleared needs human eyes`; no-op writes nothing.
+- **A7** `reason` required on status change, optional on flag; comment body non-empty; status names stripped, case-sensitive.
+- **A8** `updated_at` bumps on every non-no-op mutation incl. comments.
+- **A9** List tie-breaks: `created_at`, then `id`, following `order`.
+- **A10** Session fields nullable as listed; PUT keeps omitted keys, clears explicit nulls; list order `last_message_at desc` nulls last, then `created_at desc`.
+- **A11** `cool-willow` is illustrative; tests read `name` back from the PUT response.
+- **A12** Backend tests use `TestClient(api)` with paths relative to the API root (`/tickets`).
+- **A13** `tracker/api/statuses.py`; `GET /statuses` → built-ins in canonical order then customs sorted by name.
+- **A14** Register `GET /tickets/summary` before `GET /tickets/{id}`.
+- **A15** `make gen-api` exports the schema with `manage.py export_openapi_schema` (no server) then runs `openapi-typescript`.
+- **A16** Frontend client `baseUrl: window.location.origin`; Vite proxies `/api`; MSW handlers use relative paths.

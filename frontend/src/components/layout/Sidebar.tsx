@@ -1,16 +1,38 @@
 import { useState } from "react"
 import { PanelLeftClose, PanelLeftOpen, SquareTerminal, Ticket } from "lucide-react"
 import { NavLink } from "react-router-dom"
+import { useTicketsSummary } from "@/api/hooks/tickets"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const navItems = [
-  { to: "/", label: "Tickets", icon: Ticket },
+  { to: "/", label: "Tickets", icon: Ticket, badge: "needsHumanEyes" },
   { to: "/sessions", label: "Sessions", icon: SquareTerminal },
 ] as const
 
+function NeedsHumanEyesBadge({ count, collapsed }: { count: number; collapsed: boolean }) {
+  if (count <= 0) return null
+  const label = `${count} ${count === 1 ? "ticket needs" : "tickets need"} human eyes`
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      className={cn(
+        "inline-flex items-center justify-center rounded-full bg-destructive font-semibold text-white tabular-nums",
+        collapsed
+          ? "absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px] leading-none"
+          : "ml-auto h-5 min-w-5 px-1.5 text-xs",
+      )}
+    >
+      {count}
+    </span>
+  )
+}
+
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const { data: summary } = useTicketsSummary()
+  const needsHumanEyes = summary?.needs_human_eyes_count ?? 0
   const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose
 
   return (
@@ -42,7 +64,7 @@ export function Sidebar() {
         </Button>
       </div>
       <nav aria-label="Main" className="flex flex-col gap-1 px-2">
-        {navItems.map(({ to, label, icon: Icon }) => (
+        {navItems.map(({ to, label, icon: Icon, ...item }) => (
           <NavLink
             key={to}
             to={to}
@@ -51,7 +73,7 @@ export function Sidebar() {
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors outline-none",
+                "relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors outline-none",
                 "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
                 collapsed && "justify-center",
@@ -59,8 +81,16 @@ export function Sidebar() {
               )
             }
           >
-            <Icon aria-hidden="true" className="size-4 shrink-0" />
+            <span className="relative inline-flex shrink-0">
+              <Icon aria-hidden="true" className="size-4" />
+              {collapsed && "badge" in item && (
+                <NeedsHumanEyesBadge count={needsHumanEyes} collapsed />
+              )}
+            </span>
             {!collapsed && <span>{label}</span>}
+            {!collapsed && "badge" in item && (
+              <NeedsHumanEyesBadge count={needsHumanEyes} collapsed={false} />
+            )}
           </NavLink>
         ))}
       </nav>

@@ -31,6 +31,25 @@ class SortOrder(str, Enum):
     desc = "desc"
 
 
+def _ticket_and_actor(ticket_id: int, actor_session_id: str) -> tuple[models.Ticket, dict]:
+    """Load the ticket and validate the actor, in A3 order: 404 before 400."""
+    ticket = get_object_or_404(models.Ticket, id=ticket_id)
+    return ticket, actors.resolve_actor(actor_session_id)
+
+
+def _record(
+    ticket: models.Ticket,
+    kind: models.TimelineKind,
+    actor_session_id: str,
+    body: str,
+    **fields,
+) -> models.TimelineEntry:
+    """Append one timeline entry to the ticket."""
+    return models.TimelineEntry.objects.create(
+        ticket=ticket, kind=kind, actor_session_id=actor_session_id, body=body, **fields
+    )
+
+
 @router.post("", response={201: schemas.TicketDetail})
 def create_ticket(request, payload: schemas.TicketCreate):
     actors.resolve_actor(payload.actor_session_id)
@@ -67,8 +86,7 @@ def tickets_summary(request):
 
 @router.patch("/{int:ticket_id}", response=schemas.TicketDetail)
 def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
-    ticket = get_object_or_404(models.Ticket, id=ticket_id)
-    actor = actors.resolve_actor(payload.actor_session_id)
+    ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
 
     current = {
         "title": ticket.title,
@@ -89,11 +107,11 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
         current[field] = new
         if field not in ("project", "labels"):
             setattr(ticket, field, new)
-        models.TimelineEntry.objects.create(
-            ticket=ticket,
-            kind=models.TimelineKind.FIELD_CHANGE,
-            actor_session_id=payload.actor_session_id,
-            body=_field_change_body(actor["name"], field, old, new),
+        _record(
+            ticket,
+            models.TimelineKind.FIELD_CHANGE,
+            payload.actor_session_id,
+            _field_change_body(actor["name"], field, old, new),
         )
 
     if changed_fields:
@@ -132,8 +150,7 @@ def list_tickets(
 
 @router.post("/{int:ticket_id}/status", response=schemas.TicketDetail)
 def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
-    ticket = get_object_or_404(models.Ticket, id=ticket_id)
-    actor = actors.resolve_actor(payload.actor_session_id)
+    ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
     from_status = ticket.status.name if ticket.status else None
     if from_status == payload.status:
         return ticket  # B3.7 no-op: same status, nothing written
@@ -144,11 +161,11 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
         body = f"{actor['name']} set status to {status.name}"
     else:
         body = f"{actor['name']} changed status from {from_status} to {status.name}"
-    models.TimelineEntry.objects.create(
-        ticket=ticket,
-        kind=models.TimelineKind.STATUS_CHANGE,
-        actor_session_id=payload.actor_session_id,
-        body=body,
+    _record(
+        ticket,
+        models.TimelineKind.STATUS_CHANGE,
+        payload.actor_session_id,
+        body,
         from_status=from_status,
         to_status=status.name,
         reason=payload.reason,
@@ -158,32 +175,25 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
 
 @router.post("/{int:ticket_id}/comments", response=schemas.TicketDetail)
 def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
-    ticket = get_object_or_404(models.Ticket, id=ticket_id)
-    actors.resolve_actor(payload.actor_session_id)
-    models.TimelineEntry.objects.create(
-        ticket=ticket,
-        kind=models.TimelineKind.COMMENT,
-        actor_session_id=payload.actor_session_id,
-        body=payload.body,
-    )
+    ticket, _actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
+    _record(ticket, models.TimelineKind.COMMENT, payload.actor_session_id, payload.body)
     ticket.save()  # A8: comments count as activity
     return ticket
 
 
 @router.post("/{int:ticket_id}/needs-human-eyes", response=schemas.TicketDetail)
 def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEyesIn):
-    ticket = get_object_or_404(models.Ticket, id=ticket_id)
-    actor = actors.resolve_actor(payload.actor_session_id)
+    ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
     if ticket.needs_human_eyes == payload.value:
         return ticket  # A6 no-op: same value, nothing written
     ticket.needs_human_eyes = payload.value
     ticket.save()
     verb = "flagged" if payload.value else "cleared"
-    models.TimelineEntry.objects.create(
-        ticket=ticket,
-        kind=models.TimelineKind.FLAG_CHANGE,
-        actor_session_id=payload.actor_session_id,
-        body=f"{actor['name']} {verb} needs human eyes",
+    _record(
+        ticket,
+        models.TimelineKind.FLAG_CHANGE,
+        payload.actor_session_id,
+        f"{actor['name']} {verb} needs human eyes",
         reason=payload.reason,
     )
     return ticket

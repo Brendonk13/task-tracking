@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from ninja import Schema
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from tracker.models import Priority, TimelineKind
 from tracker.services import actors, tags
@@ -115,7 +115,7 @@ class TicketPatch(Schema):
 
 
 class StatusChangeIn(Schema):
-    status: str
+    status: str = Field(max_length=100)  # matches Status.name
     reason: str
     actor_session_id: str
 

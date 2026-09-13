@@ -22,7 +22,7 @@ def actor_view(actor_session_id: str) -> dict:
     }
 
 
-def resolve_actor(actor_session_id: str) -> dict:
+def require_actor(actor_session_id: str) -> dict:
     """Validate an actor on a mutating endpoint and return its ``Actor`` view.
 
     Raises ``HttpError(400, "unknown actor")`` when no such session is registered.

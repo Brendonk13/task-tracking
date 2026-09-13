@@ -34,7 +34,7 @@ class SortOrder(str, Enum):
 def _ticket_and_actor(ticket_id: int, actor_session_id: str) -> tuple[models.Ticket, dict]:
     """Load the ticket and validate the actor, in A3 order: 404 before 400."""
     ticket = get_object_or_404(models.Ticket, id=ticket_id)
-    return ticket, actors.resolve_actor(actor_session_id)
+    return ticket, actors.require_actor(actor_session_id)
 
 
 def _record(
@@ -52,7 +52,7 @@ def _record(
 
 @router.post("", response={201: schemas.TicketDetail})
 def create_ticket(request, payload: schemas.TicketCreate):
-    actors.resolve_actor(payload.actor_session_id)
+    actors.require_actor(payload.actor_session_id)
     ticket = models.Ticket.objects.create(
         **payload.dict(exclude={"actor_session_id", "project", "labels"})
     )

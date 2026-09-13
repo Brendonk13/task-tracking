@@ -153,3 +153,37 @@ def test_list_tickets_returns_all_tickets_newest_first_by_default(client):
     for row in rows:
         assert "id" in row
         assert "title" in row
+
+
+def test_list_tickets_sort_by_priority_puts_urgent_before_low(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    for priority in ["low", "urgent", "medium"]:
+        response = client.post(
+            "/tickets",
+            json={
+                "title": f"{priority} ticket",
+                "priority": priority,
+                "actor_session_id": actor,
+            },
+        )
+        assert response.status_code == 201
+
+    descending = client.get("/tickets?sort=priority&order=desc")
+
+    assert descending.status_code == 200
+    assert [row["priority"] for row in descending.json()] == [
+        "urgent",
+        "medium",
+        "low",
+    ]
+
+    ascending = client.get("/tickets?sort=priority&order=asc")
+
+    assert ascending.status_code == 200
+    assert [row["priority"] for row in ascending.json()] == [
+        "low",
+        "medium",
+        "urgent",
+    ]

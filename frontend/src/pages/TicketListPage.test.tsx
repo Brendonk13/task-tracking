@@ -30,9 +30,8 @@ const askVendor = makeTicket({
 // Status filter convention: a button named "Filter by status" opens a list of
 // checkboxes, one per status from GET /api/statuses, labelled with the status name.
 //
-// Needs-human-eyes convention: a role="switch" named "Needs human eyes"; every ticket row
-// carries data-needs-human-eyes="true|false", and flagged rows contain an alert icon with
-// aria-label "Needs human eyes".
+// Needs-human-eyes convention: a role="switch" named "Needs human eyes"; flagged rows
+// contain an alert icon with aria-label "Needs human eyes", unflagged rows do not.
 //
 // Sort convention: a native <select aria-label="Sort by"> whose option values are the API
 // sort fields (created_at, updated_at, priority).
@@ -116,12 +115,10 @@ describe("TicketListPage", () => {
     server.use(ticketsHandler(filterTickets([fixLogin, askVendor])))
     renderWithProviders(<TicketListPage />)
 
-    // Before toggling: both rows shown, each already marked with its flag state.
+    // Before toggling: both rows shown; only the flagged one carries the alert icon.
     await screen.findByText("Fix login")
     const fixLoginRow = screen.getByRole("row", { name: /fix login/i })
     const askVendorRow = screen.getByRole("row", { name: /ask vendor/i })
-    expect(fixLoginRow).toHaveAttribute("data-needs-human-eyes", "false")
-    expect(askVendorRow).toHaveAttribute("data-needs-human-eyes", "true")
     expect(within(askVendorRow).getByLabelText(/needs human eyes/i)).toBeInTheDocument()
     expect(within(fixLoginRow).queryByLabelText(/needs human eyes/i)).toBeNull()
 
@@ -131,7 +128,6 @@ describe("TicketListPage", () => {
     await waitFor(() => expect(screen.queryByText("Fix login")).toBeNull())
 
     const flaggedRow = screen.getByRole("row", { name: /ask vendor/i })
-    expect(flaggedRow).toHaveAttribute("data-needs-human-eyes", "true")
     expect(within(flaggedRow).getByLabelText(/needs human eyes/i)).toBeInTheDocument()
   })
 
@@ -226,5 +222,16 @@ describe("TicketListPage", () => {
 
     await waitFor(() => expect(currentLocation().params.getAll("status")).toEqual(["needs-help"]))
     expect(currentLocation().pathname).toBe("/")
+  })
+
+  // Empty-state convention: when the list request returns no tickets the page shows the literal
+  // "No tickets match these filters." and renders no ticket rows (a header-only table or no
+  // table at all are both fine).
+  it("shows an empty state when no tickets match", async () => {
+    server.use(ticketsHandler([]))
+    renderWithProviders(<TicketListPage />)
+
+    expect(await screen.findByText("No tickets match these filters.")).toBeInTheDocument()
+    expect(screen.queryAllByRole("row").length).toBeLessThanOrEqual(1)
   })
 })

@@ -28,3 +28,5 @@ playwright/.cache
 # vitest
 coverage
 openapi.json
+e2e/.tmp
+e2e/__pycache__

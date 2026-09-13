@@ -18,11 +18,27 @@ class Priority(models.TextChoices):
     NONE = "none"
 
 
+class TagKind(models.TextChoices):
+    PROJECT = "project"
+    LABEL = "label"
+
+
+class Tag(models.Model):
+    name = models.CharField(max_length=100)
+    kind = models.CharField(max_length=10, choices=TagKind.choices)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "name"], name="unique_tag_kind_name")
+        ]
+
+
 class Ticket(models.Model):
     title = models.CharField(max_length=500)
     description = models.TextField(default="", blank=True)
     priority = models.CharField(
         max_length=10, choices=Priority.choices, default=Priority.NONE
     )
+    tags = models.ManyToManyField(Tag, related_name="tickets", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -1,7 +1,14 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router-dom"
 import { TicketDetailPage } from "@/pages/TicketDetailPage"
-import { makeTicketDetail, makeTimelineEntry, ticketDetailHandler } from "@/test/handlers"
+import {
+  HUMAN_ACTOR,
+  makeTicketDetail,
+  makeTimelineEntry,
+  statefulTicketDetail,
+  ticketDetailHandler,
+} from "@/test/handlers"
 import { server } from "@/test/msw"
 import { renderWithProviders } from "@/test/render"
 
@@ -196,5 +203,92 @@ describe("TicketDetailPage", () => {
     expect(within(items[0]!).getByText("cool-willow", actor)).toBeVisible()
     expect(within(items[1]!).getByText("brave-otter", actor)).toBeVisible()
     expect(within(items[2]!).getByText("human", actor)).toBeVisible()
+  })
+
+  // Resume convention: an entry whose actor has a directory shows a button whose accessible
+  // name matches /resume session/i (suggested: "Resume session <name>"). Clicking it writes
+  // `cd <directory> && claude --resume <session_id>` to the clipboard. Entries whose actor
+  // has `directory: null` (the human actor) render no such button (memo A1).
+  // Clipboard: userEvent.setup() installs a navigator.clipboard stub; the test reads it back.
+  it('resume-session button on an entry copies "cd <dir> && claude --resume <id>" to clipboard', async () => {
+    const user = userEvent.setup()
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Fix login",
+          timeline: [
+            makeTimelineEntry({
+              id: 1,
+              kind: "comment",
+              actor: { session_id: "sess-42", name: "cool-willow", directory: "/home/dev/app" },
+              body: "Looking into it",
+              created_at: "2026-09-12T10:00:00Z",
+            }),
+            makeTimelineEntry({
+              id: 2,
+              kind: "comment",
+              actor: HUMAN_ACTOR,
+              body: "Thanks, taking over",
+              created_at: "2026-09-12T10:05:00Z",
+            }),
+          ],
+        }),
+      ),
+    )
+    renderDetail(7)
+
+    const timeline = await screen.findByRole("list", { name: /timeline/i })
+    const [bySession, byHuman] = within(timeline).getAllByRole("listitem")
+
+    await user.click(within(bySession!).getByRole("button", { name: /resume session/i }))
+    expect(await navigator.clipboard.readText()).toBe("cd /home/dev/app && claude --resume sess-42")
+
+    expect(within(byHuman!).queryByRole("button", { name: /resume/i })).toBeNull()
+  })
+
+  // Comment form convention: a textbox with accessible name matching /comment/i and a submit
+  // button named /post comment/i. Posting sends {body, actor_session_id: "human"}, the new
+  // entry appears at the end of the timeline, and the textbox is cleared.
+  it('human can post a comment; request carries actor_session_id "human" and timeline refreshes', async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({
+        id: 7,
+        title: "Fix login",
+        timeline: [
+          makeTimelineEntry({
+            id: 1,
+            kind: "comment",
+            body: "Looking into it",
+            created_at: "2026-09-12T10:00:00Z",
+          }),
+        ],
+      }),
+    )
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    const timeline = await screen.findByRole("list", { name: /timeline/i })
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(1)
+
+    const box = screen.getByRole("textbox", { name: /comment/i })
+    await user.type(box, "Looks good")
+    await user.click(screen.getByRole("button", { name: /post comment/i }))
+
+    await waitFor(() =>
+      expect(ticket.commentRequests).toEqual([{ body: "Looks good", actor_session_id: "human" }]),
+    )
+
+    // The timeline shows the new comment as its newest entry, by the human actor.
+    await waitFor(() =>
+      expect(within(screen.getByRole("list", { name: /timeline/i })).getAllByRole("listitem")).toHaveLength(2),
+    )
+    const [, posted] = within(screen.getByRole("list", { name: /timeline/i })).getAllByRole("listitem")
+    expect(posted).toHaveAttribute("data-kind", "comment")
+    expect(within(posted!).getByRole("article")).toHaveTextContent("Looks good")
+    expect(within(posted!).getByText("human", { selector: "[data-slot='timeline-actor']" })).toBeVisible()
+
+    expect(screen.getByRole("textbox", { name: /comment/i })).toHaveValue("")
   })
 })

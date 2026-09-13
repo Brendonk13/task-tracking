@@ -7,6 +7,8 @@ type TicketListItem = components["schemas"]["TicketListItem"]
 type StatusItem = components["schemas"]["StatusItem"]
 type TicketDetail = components["schemas"]["TicketDetail"]
 type TimelineEntry = components["schemas"]["TimelineEntry"]
+type Actor = components["schemas"]["Actor"]
+type CommentIn = components["schemas"]["CommentIn"]
 
 /** The ten built-in statuses, in the canonical order `GET /api/statuses` returns them. */
 export const BUILT_IN_STATUSES: StatusItem[] = [
@@ -67,6 +69,53 @@ export function makeTimelineEntry(overrides: Partial<TimelineEntry> = {}): Timel
 export function makeTicketDetail(overrides: Partial<TicketDetail> = {}): TicketDetail {
   const { description = "", timeline = [], ...listOverrides } = overrides
   return { ...makeTicket(listOverrides), description, timeline }
+}
+
+/** The reserved human actor (memo A1). */
+export const HUMAN_ACTOR: Actor = { session_id: "human", name: "human", directory: null }
+
+/**
+ * Stateful handlers for one ticket's detail page: `GET /api/tickets/:id` plus the
+ * mutations the page can perform. Each mutation records its parsed JSON body, applies
+ * the change to the in-memory detail, and returns the updated `TicketDetail` (A3);
+ * later GETs return the same updated detail. So a page may either use the mutation
+ * response or invalidate and refetch — both see the new state.
+ *
+ * Usage: `const ticket = statefulTicketDetail(detail); server.use(...ticket.handlers)`.
+ */
+export function statefulTicketDetail(initial: TicketDetail) {
+  let detail = initial
+  let clock = 0
+  const commentRequests: CommentIn[] = []
+
+  const nextCreatedAt = () => {
+    clock += 1
+    return `2026-09-13T12:${String(clock).padStart(2, "0")}:00Z`
+  }
+
+  const handlers = [
+    http.get(`/api/tickets/${initial.id}`, () => HttpResponse.json(detail)),
+    http.post(`/api/tickets/${initial.id}/comments`, async ({ request }) => {
+      const body = (await request.json()) as CommentIn
+      commentRequests.push(body)
+      const entry = makeTimelineEntry({
+        kind: "comment",
+        actor: HUMAN_ACTOR,
+        body: body.body,
+        created_at: nextCreatedAt(),
+      })
+      detail = { ...detail, timeline: [...detail.timeline, entry], updated_at: entry.created_at }
+      return HttpResponse.json(detail)
+    }),
+  ]
+
+  return {
+    handlers,
+    /** Parsed bodies of every `POST .../comments` seen, in order. */
+    commentRequests,
+    /** The detail as the "server" currently has it. */
+    current: () => detail,
+  }
 }
 
 /** MSW handler for `GET /api/tickets/:id` returning the given detail for its own id. */

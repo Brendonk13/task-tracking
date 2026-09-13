@@ -1,5 +1,5 @@
-import { useState } from "react"
 import { TriangleAlert } from "lucide-react"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useTickets, type TicketListItem, type TicketListQuery } from "@/api/hooks/tickets"
 import { StatusFilter } from "@/components/tickets/StatusFilter"
 import { Badge } from "@/components/ui/badge"
@@ -50,10 +50,41 @@ const sortOptions: { value: SortField; label: string }[] = [
   { value: "priority", label: "Priority" },
 ]
 
+function isSortField(value: string | null): value is SortField {
+  return sortOptions.some((option) => option.value === value)
+}
+
 export function TicketListPage() {
-  const [statuses, setStatuses] = useState<string[]>([])
-  const [needsHumanEyes, setNeedsHumanEyes] = useState(false)
-  const [sort, setSort] = useState<SortField>("created_at")
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const statuses = searchParams.getAll("status")
+  const needsHumanEyes = searchParams.get("needs_human_eyes") === "true"
+  const sortParam = searchParams.get("sort")
+  const sort: SortField = isSortField(sortParam) ? sortParam : "created_at"
+
+  const updateParams = (mutate: (params: URLSearchParams) => void) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      mutate(next)
+      return next
+    })
+  }
+  const setStatuses = (next: string[]) =>
+    updateParams((params) => {
+      params.delete("status")
+      for (const status of next) params.append("status", status)
+    })
+  const setNeedsHumanEyes = (checked: boolean) =>
+    updateParams((params) => {
+      if (checked) params.set("needs_human_eyes", "true")
+      else params.delete("needs_human_eyes")
+    })
+  const setSort = (next: SortField) =>
+    updateParams((params) => {
+      params.set("sort", next)
+      params.set("order", "desc")
+    })
 
   const query: TicketListQuery = { sort, order: "desc" }
   if (statuses.length > 0) query.status = statuses
@@ -116,7 +147,9 @@ export function TicketListPage() {
               <TableRow
                 key={ticket.id}
                 data-needs-human-eyes={String(ticket.needs_human_eyes)}
+                onClick={() => navigate(`/tickets/${ticket.id}`)}
                 className={cn(
+                  "cursor-pointer",
                   ticket.needs_human_eyes &&
                     "border-l-2 border-l-destructive bg-destructive/5 hover:bg-destructive/10",
                 )}
@@ -130,7 +163,15 @@ export function TicketListPage() {
                     />
                   )}
                 </TableCell>
-                <TableCell className="font-medium">{ticket.title}</TableCell>
+                <TableCell className="font-medium">
+                  <Link
+                    to={`/tickets/${ticket.id}`}
+                    onClick={(event) => event.stopPropagation()}
+                    className="hover:underline focus-visible:underline outline-none"
+                  >
+                    {ticket.title}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <PriorityBadge priority={ticket.priority} />
                 </TableCell>

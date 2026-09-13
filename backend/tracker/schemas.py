@@ -3,8 +3,8 @@ from datetime import datetime
 from ninja import Schema
 from pydantic import field_validator
 
-from tracker.models import Priority, TagKind, TimelineKind
-from tracker.services import actors
+from tracker.models import Priority, TimelineKind
+from tracker.services import actors, tags
 
 
 class SessionIn(Schema):
@@ -117,12 +117,11 @@ class TicketListItem(Schema):
 
     @staticmethod
     def resolve_project(obj) -> str | None:
-        tag = obj.tags.filter(kind=TagKind.PROJECT).first()
-        return tag.name if tag else None
+        return tags.project_of(obj)
 
     @staticmethod
     def resolve_labels(obj) -> list[str]:
-        return sorted(obj.tags.filter(kind=TagKind.LABEL).values_list("name", flat=True))
+        return tags.labels_of(obj)
 
 
 class TicketDetail(TicketListItem):

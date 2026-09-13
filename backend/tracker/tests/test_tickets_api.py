@@ -223,3 +223,264 @@ def test_ticket_stores_linear_url(client):
     by_id = {row["id"]: row for row in listing.json()}
     assert by_id[linked_id]["linear_url"] == linear_url
     assert by_id[unlinked_id]["linear_url"] is None
+
+
+# --- Reviewer follow-ups: contract points not covered by the numbered slices ---
+
+
+def _create(client, actor, **fields):
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": actor, **fields})
+    assert created.status_code == 201
+    return created.json()
+
+
+def _detail(client, ticket_id):
+    fetched = client.get(f"/tickets/{ticket_id}")
+    assert fetched.status_code == 200
+    return fetched.json()
+
+
+def _field_changes(client, ticket_id):
+    return [e for e in _detail(client, ticket_id)["timeline"] if e["kind"] == "field_change"]
+
+
+def test_patch_labels_replaces_set_and_empty_list_clears(client):
+    session = register_session(client)
+    actor, name = session["session_id"], session["name"]
+    ticket_id = _create(client, actor, labels=["infra", "ai"])["id"]
+
+    replaced = client.patch(
+        f"/tickets/{ticket_id}", json={"labels": ["ai", "docs"], "actor_session_id": actor}
+    )
+
+    assert replaced.status_code == 200
+    assert replaced.json()["labels"] == ["ai", "docs"]
+    changes = _field_changes(client, ticket_id)
+    assert len(changes) == 1
+    assert changes[0]["body"] == f"{name} changed labels from ai, infra to ai, docs"
+
+    cleared = client.patch(f"/tickets/{ticket_id}", json={"labels": [], "actor_session_id": actor})
+
+    assert cleared.status_code == 200
+    assert cleared.json()["labels"] == []
+    changes = _field_changes(client, ticket_id)
+    assert len(changes) == 2
+    assert changes[1]["body"] == f"{name} changed labels from ai, docs to (none)"
+
+
+def test_patch_project_and_linear_url_null_clears_them(client):
+    session = register_session(client)
+    actor, name = session["session_id"], session["name"]
+    linear_url = "https://linear.app/avantos/issue/AVA-123/fix-login"
+    ticket_id = _create(client, actor, project="avantos", linear_url=linear_url)["id"]
+
+    cleared = client.patch(
+        f"/tickets/{ticket_id}",
+        json={"project": None, "linear_url": None, "actor_session_id": actor},
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["project"] is None
+    assert cleared.json()["linear_url"] is None
+    bodies = {e["body"] for e in _field_changes(client, ticket_id)}
+    assert bodies == {
+        f"{name} changed project from avantos to (none)",
+        f"{name} changed linear_url from {linear_url} to (none)",
+    }
+
+
+def test_patch_description_writes_entry_without_values(client):
+    session = register_session(client)
+    actor, name = session["session_id"], session["name"]
+    ticket_id = _create(client, actor, description="Users get 500")["id"]
+
+    patched = client.patch(
+        f"/tickets/{ticket_id}",
+        json={"description": "Users get 500 after token refresh", "actor_session_id": actor},
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["description"] == "Users get 500 after token refresh"
+    changes = _field_changes(client, ticket_id)
+    assert len(changes) == 1
+    assert changes[0]["body"] == f"{name} changed description"
+
+
+def test_patch_with_no_changes_writes_nothing_and_multiple_fields_write_one_entry_each(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    ticket_id = _create(client, actor, priority="low")["id"]
+
+    unchanged = client.patch(
+        f"/tickets/{ticket_id}",
+        json={"title": "Fix login", "priority": "low", "actor_session_id": actor},
+    )
+
+    assert unchanged.status_code == 200
+    assert _detail(client, ticket_id)["timeline"] == []
+
+    two_fields = client.patch(
+        f"/tickets/{ticket_id}",
+        json={"title": "Fix login redirect", "priority": "high", "actor_session_id": actor},
+    )
+
+    assert two_fields.status_code == 200
+    assert two_fields.json()["title"] == "Fix login redirect"
+    assert two_fields.json()["priority"] == "high"
+    changes = _field_changes(client, ticket_id)
+    assert len(changes) == 2
+    assert {e["body"].split(" changed ")[1].split(" from ")[0] for e in changes} == {
+        "title",
+        "priority",
+    }
+
+
+def test_patch_null_on_non_nullable_field_is_422(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    ticket_id = _create(client, actor)["id"]
+
+    null_title = client.patch(f"/tickets/{ticket_id}", json={"title": None, "actor_session_id": actor})
+
+    assert null_title.status_code == 422
+
+    null_priority = client.patch(
+        f"/tickets/{ticket_id}", json={"priority": None, "actor_session_id": actor}
+    )
+
+    assert null_priority.status_code == 422
+    assert _detail(client, ticket_id)["title"] == "Fix login"
+    assert _detail(client, ticket_id)["priority"] == "none"
+
+
+def test_validation_errors_are_422(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    ticket_id = _create(client, actor)["id"]
+
+    empty_reason = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": "planning", "reason": "", "actor_session_id": actor},
+    )
+    assert empty_reason.status_code == 422
+
+    empty_comment = client.post(
+        f"/tickets/{ticket_id}/comments", json={"body": "", "actor_session_id": actor}
+    )
+    assert empty_comment.status_code == 422
+
+    blank_status = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": "  ", "reason": "starting", "actor_session_id": actor},
+    )
+    assert blank_status.status_code == 422
+
+    assert _detail(client, ticket_id)["timeline"] == []
+
+    padded_status = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": "  planning ", "reason": "starting", "actor_session_id": actor},
+    )
+
+    assert padded_status.status_code == 200
+    assert padded_status.json()["status"] == "planning"
+
+
+def test_check_order_is_422_then_404_then_400(client):
+    missing_ticket_unknown_actor = client.post(
+        "/tickets/9999/status",
+        json={"status": "planning", "reason": "starting", "actor_session_id": "not-registered"},
+    )
+
+    assert missing_ticket_unknown_actor.status_code == 404
+
+    missing_ticket_invalid_body = client.post(
+        "/tickets/9999/status",
+        json={"status": "planning", "actor_session_id": "not-registered"},
+    )
+
+    assert missing_ticket_invalid_body.status_code == 422
+
+
+def test_updated_at_bumps_on_comment_and_not_on_status_noop(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    with freeze_time("2026-09-12T10:00:00Z"):
+        commented_id = _create(client, actor, title="Gets a comment")["id"]
+        noop_id = _create(client, actor, title="Gets a status no-op")["id"]
+        seeded = client.post(
+            f"/tickets/{noop_id}/status",
+            json={"status": "planning", "reason": "starting", "actor_session_id": actor},
+        )
+        assert seeded.status_code == 200
+
+    with freeze_time("2026-09-12T10:01:00Z"):
+        commented = client.post(
+            f"/tickets/{commented_id}/comments",
+            json={"body": "Looking into it.", "actor_session_id": actor},
+        )
+        assert commented.status_code == 200
+
+    with freeze_time("2026-09-12T10:02:00Z"):
+        noop = client.post(
+            f"/tickets/{noop_id}/status",
+            json={"status": "planning", "reason": "still planning", "actor_session_id": actor},
+        )
+        assert noop.status_code == 200
+
+    assert _detail(client, commented_id)["updated_at"] == "2026-09-12T10:01:00Z"
+    assert _detail(client, noop_id)["updated_at"] == "2026-09-12T10:00:00Z"
+
+    by_activity = client.get("/tickets?sort=updated_at&order=desc")
+
+    assert by_activity.status_code == 200
+    assert [row["id"] for row in by_activity.json()] == [commented_id, noop_id]
+
+
+def test_list_tie_break_on_equal_created_at_follows_order(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    with freeze_time("2026-09-12T10:00:00Z"):
+        first = _create(client, actor, title="first")["id"]
+        second = _create(client, actor, title="second")["id"]
+        third = _create(client, actor, title="third")["id"]
+
+    descending = client.get("/tickets?sort=created_at&order=desc")
+    ascending = client.get("/tickets?sort=created_at&order=asc")
+
+    assert descending.status_code == 200
+    assert ascending.status_code == 200
+    assert [row["id"] for row in descending.json()] == [third, second, first]
+    assert [row["id"] for row in ascending.json()] == [first, second, third]
+
+
+def test_human_actor_on_patch_status_and_flag(client):
+    ticket_id = _create(client, "human")["id"]
+
+    patched = client.patch(
+        f"/tickets/{ticket_id}", json={"priority": "high", "actor_session_id": "human"}
+    )
+    status = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": "planning", "reason": "starting", "actor_session_id": "human"},
+    )
+    flagged = client.post(
+        f"/tickets/{ticket_id}/needs-human-eyes",
+        json={"value": True, "actor_session_id": "human"},
+    )
+
+    assert patched.status_code == 200
+    assert status.status_code == 200
+    assert flagged.status_code == 200
+    timeline = _detail(client, ticket_id)["timeline"]
+    assert [e["body"] for e in timeline] == [
+        "human changed priority from none to high",
+        "human set status to planning",
+        "human flagged needs human eyes",
+    ]
+    assert all(
+        e["actor"] == {"session_id": "human", "name": "human", "directory": None}
+        for e in timeline
+    )

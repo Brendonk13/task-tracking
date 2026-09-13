@@ -106,3 +106,45 @@ def test_list_sessions_orders_by_last_message_at_desc(client):
         "sess-0900",
         "sess-no-message",
     ]
+
+
+# --- Reviewer follow-ups: A10 merge rule and naive datetimes ---
+
+
+def test_register_session_put_keeps_omitted_fields_and_clears_explicit_null(client):
+    session_id = "5e2a8c4f-1d7b-4b39-a6e0-9c3f7d2b8a51"
+
+    with_message = client.put(
+        f"/sessions/{session_id}",
+        json={"directory": "/home/me/proj", "last_message": "please fix the tests"},
+    )
+    assert with_message.status_code == 200
+    assert with_message.json()["last_message"] == "please fix the tests"
+
+    directory_only = client.put(f"/sessions/{session_id}", json={"directory": "/home/me/proj"})
+
+    assert directory_only.status_code == 200
+    assert directory_only.json()["last_message"] == "please fix the tests"
+
+    explicit_null = client.put(
+        f"/sessions/{session_id}",
+        json={"directory": "/home/me/proj", "last_message": None},
+    )
+
+    assert explicit_null.status_code == 200
+    assert explicit_null.json()["last_message"] is None
+
+    listing = client.get("/sessions")
+
+    assert listing.status_code == 200
+    assert [s["last_message"] for s in listing.json() if s["session_id"] == session_id] == [None]
+
+
+def test_naive_last_message_at_is_treated_as_utc(client):
+    response = client.put(
+        "/sessions/6f3b9d1c-8a2e-4c75-b0d4-1e7a5c9f3b82",
+        json={"directory": "/home/me/proj", "last_message_at": "2026-09-12T10:00:00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["last_message_at"] == "2026-09-12T10:00:00Z"

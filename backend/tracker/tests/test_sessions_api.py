@@ -65,3 +65,17 @@ def test_register_same_session_twice_keeps_name_and_updates_message(client):
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == session_id
     assert sessions[0]["last_message"] == "now run the linter"
+
+
+def test_generated_names_are_unique_across_sessions(client, seeded_names):
+    names = []
+    for i in range(50):
+        response = client.put(
+            f"/sessions/sess-{i:03d}",
+            json={"directory": "/home/me/proj"},
+        )
+        assert response.status_code == 200
+        names.append(response.json()["name"])
+
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    assert len(set(names)) == 50, f"duplicate names: {duplicates}"

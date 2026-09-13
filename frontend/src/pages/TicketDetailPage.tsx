@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { formatRelativeTime } from "@/lib/time"
 
 const OTHER_STATUS = "__other__"
 
@@ -27,7 +28,9 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
       <span data-slot="timeline-actor" className="font-medium text-foreground">
         {entry.actor.name}
       </span>
-      <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+      <time dateTime={entry.created_at} title={new Date(entry.created_at).toLocaleString()}>
+        {formatRelativeTime(entry.created_at)}
+      </time>
       {entry.actor.directory !== null && (
         <ResumeSessionButton
           sessionId={entry.actor.session_id}

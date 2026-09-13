@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 
 from tracker.tests.conftest import register_session
 
@@ -123,3 +124,71 @@ def test_add_comment_appears_in_timeline_with_actor_name(client):
     assert timeline[1]["kind"] == "comment"
     assert timeline[1]["body"] == "Thanks, I will look at the logout flow."
     assert timeline[1]["actor"] == {"session_id": "human", "name": "human", "directory": None}
+
+
+def test_timeline_is_ordered_oldest_first_and_interleaves_comments_and_status_changes(
+    client,
+):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": actor})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    with freeze_time("2026-09-12T10:00:00Z"):
+        first = client.post(
+            f"/tickets/{ticket_id}/comments",
+            json={"body": "Starting to look at this.", "actor_session_id": actor},
+        )
+    with freeze_time("2026-09-12T10:01:00Z"):
+        second = client.post(
+            f"/tickets/{ticket_id}/status",
+            json={"status": "planning", "reason": "scoping the fix", "actor_session_id": actor},
+        )
+    with freeze_time("2026-09-12T10:02:00Z"):
+        third = client.post(
+            f"/tickets/{ticket_id}/comments",
+            json={"body": "Plan drafted.", "actor_session_id": actor},
+        )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 200
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    timeline = fetched.json()["timeline"]
+    assert [e["kind"] for e in timeline] == ["comment", "status_change", "comment"]
+    assert [e["created_at"] for e in timeline] == [
+        "2026-09-12T10:00:00Z",
+        "2026-09-12T10:01:00Z",
+        "2026-09-12T10:02:00Z",
+    ]
+
+
+def test_timeline_actor_includes_session_id_directory_and_name(client):
+    session_id = "0b6e3c9d-8f2a-4d57-a1c4-7e5b9d3f0a28"
+    session = register_session(client, session_id=session_id, directory="/home/me/work/api")
+    name = session["name"]
+
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": session_id})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    changed = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": "planning", "reason": "starting", "actor_session_id": session_id},
+    )
+    assert changed.status_code == 200
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    timeline = fetched.json()["timeline"]
+    assert len(timeline) == 1
+    assert timeline[0]["actor"] == {
+        "session_id": session_id,
+        "name": name,
+        "directory": "/home/me/work/api",
+    }

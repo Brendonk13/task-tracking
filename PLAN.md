@@ -359,6 +359,14 @@ commit (`refactor(<lane>): ...`) with the suite green before and after.
 - Real-time updates (polling via react-query `refetchInterval` is acceptable if wanted).
 - Editing or deleting timeline entries. The timeline is append-only.
 
+Follow-ups surfaced by the frontend reviews (2026-09-13), not blocking the definition of done:
+
+- Unknown `?status=<name>` in the URL renders as a checked, clearable row in the status filter (today it filters but cannot be cleared from the UI).
+- Pin tests for the list page's invalid `?sort=` fallback and its `role="alert"` error state.
+- `VITE_API_PROXY` env var so `make e2e` can run the throwaway backend on a port other than 8000.
+- Shell-quoting of directories with spaces in the resume command (the literal format in section 1 is unquoted; changing it needs an owner decision).
+- Success announcements (`role="status"`) after posting a comment or changing status.
+
 ## 9. Architect amendments (binding, 2026-09-12)
 
 `docs/ARCHITECT_MEMO.md` was produced in task 0.1. Its amendments **A1–A16 are binding** and

@@ -103,4 +103,98 @@ describe("TicketDetailPage", () => {
     expect(within(items[0]!).queryByRole("article")).toBeNull()
     expect(within(items[2]!).queryByRole("article")).toBeNull()
   })
+
+  // Reason convention: a status change's `reason` is rendered as its own element inside the
+  // <li>, whose text is exactly the reason string (any "Reason" label lives in a sibling).
+  it('status change event reads "<name> changed status from X to Y" and shows the reason; first-ever change reads "<name> set status to Y"', async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Fix login",
+          status: "planning",
+          timeline: [
+            makeTimelineEntry({
+              id: 1,
+              kind: "status_change",
+              body: "cool-willow set status to blocked",
+              from_status: null,
+              to_status: "blocked",
+              reason: "waiting on vendor",
+              created_at: "2026-09-12T10:00:00Z",
+            }),
+            makeTimelineEntry({
+              id: 2,
+              kind: "status_change",
+              body: "cool-willow changed status from blocked to planning",
+              from_status: "blocked",
+              to_status: "planning",
+              reason: "vendor replied",
+              created_at: "2026-09-12T10:10:00Z",
+            }),
+          ],
+        }),
+      ),
+    )
+    renderDetail(7)
+
+    const timeline = await screen.findByRole("list", { name: /timeline/i })
+    const [first, second] = within(timeline).getAllByRole("listitem")
+
+    expect(first).toHaveTextContent("cool-willow set status to blocked")
+    expect(within(first!).getByText("waiting on vendor")).toBeVisible()
+
+    expect(second).toHaveTextContent("cool-willow changed status from blocked to planning")
+    expect(within(second!).getByText("vendor replied")).toBeVisible()
+  })
+
+  // Actor convention: every <li> shows the actor's session name in an element marked
+  // data-slot="timeline-actor" (separate from the body, which may also contain the name).
+  // The human actor renders as "human".
+  it("each timeline entry shows the actor session name", async () => {
+    const actor = { selector: "[data-slot='timeline-actor']" }
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Fix login",
+          status: "blocked",
+          timeline: [
+            makeTimelineEntry({
+              id: 1,
+              kind: "comment",
+              actor: { session_id: "sess-1", name: "cool-willow", directory: "/home/dev/app" },
+              body: "Looking into it",
+              created_at: "2026-09-12T10:00:00Z",
+            }),
+            makeTimelineEntry({
+              id: 2,
+              kind: "status_change",
+              actor: { session_id: "sess-2", name: "brave-otter", directory: "/home/dev/other" },
+              body: "brave-otter set status to blocked",
+              to_status: "blocked",
+              reason: "repro found",
+              created_at: "2026-09-12T10:05:00Z",
+            }),
+            makeTimelineEntry({
+              id: 3,
+              kind: "comment",
+              actor: { session_id: "human", name: "human", directory: null },
+              body: "Thanks, taking over",
+              created_at: "2026-09-12T10:10:00Z",
+            }),
+          ],
+        }),
+      ),
+    )
+    renderDetail(7)
+
+    const timeline = await screen.findByRole("list", { name: /timeline/i })
+    const items = within(timeline).getAllByRole("listitem")
+    expect(items).toHaveLength(3)
+
+    expect(within(items[0]!).getByText("cool-willow", actor)).toBeVisible()
+    expect(within(items[1]!).getByText("brave-otter", actor)).toBeVisible()
+    expect(within(items[2]!).getByText("human", actor)).toBeVisible()
+  })
 })

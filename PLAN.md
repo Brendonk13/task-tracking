@@ -128,6 +128,7 @@ task-tracking/
         test_statuses_api.py
         test_timeline_api.py
         test_sessions_api.py
+        test_flags_and_filters_api.py   # lane B4
   frontend/                     # Vite + React + TS + Tailwind + shadcn + react-query
     package.json                # pnpm; vitest, @testing-library/react, msw,
                                 #   openapi-typescript, openapi-fetch, playwright

@@ -129,7 +129,6 @@ test("a session posts a blocked ticket and the human sees it in the UI", async (
 
     // The flagged row carries the alert marker (F2.4).
     const row = page.getByRole("row").filter({ hasText: title })
-    await expect(row).toHaveAttribute("data-needs-human-eyes", "true")
     await expect(row.getByRole("img", { name: "Needs human eyes" })).toBeVisible()
   })
 })

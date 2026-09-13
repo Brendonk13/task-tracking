@@ -48,9 +48,26 @@ export function summaryHandler(needs_human_eyes_count: number) {
   })
 }
 
-/** MSW handler for `GET /api/tickets` (any query string) returning the given rows. */
-export function ticketsHandler(rows: TicketListItem[]) {
-  return http.get("/api/tickets", () => HttpResponse.json(rows))
+/**
+ * MSW handler for `GET /api/tickets` (any query string). Pass either a fixed array of rows,
+ * or a resolver that receives the request URL and returns the rows for that query.
+ */
+export function ticketsHandler(rows: TicketListItem[] | ((url: URL) => TicketListItem[])) {
+  return http.get("/api/tickets", ({ request }) => {
+    const url = new URL(request.url)
+    return HttpResponse.json(typeof rows === "function" ? rows(url) : rows)
+  })
+}
+
+/**
+ * Resolver for `ticketsHandler` that mimics the backend's status filter: repeated `status=`
+ * params are OR-ed; no `status` param returns everything.
+ */
+export function filterByStatus(rows: TicketListItem[]) {
+  return (url: URL) => {
+    const wanted = url.searchParams.getAll("status")
+    return wanted.length === 0 ? rows : rows.filter((t) => t.status !== null && wanted.includes(t.status))
+  }
 }
 
 /** MSW handler for `GET /api/statuses`; defaults to the ten built-ins. */
@@ -68,4 +85,17 @@ export function recordRequests(): string[] {
     paths.push(new URL(request.url).pathname)
   })
   return paths
+}
+
+/**
+ * Records the query string of every request to `pathname` for the rest of the current test,
+ * in order. Listeners are removed in ./setup.ts after each test.
+ */
+export function recordSearchParams(pathname = "/api/tickets"): URLSearchParams[] {
+  const seen: URLSearchParams[] = []
+  server.events.on("request:start", ({ request }) => {
+    const url = new URL(request.url)
+    if (url.pathname === pathname) seen.push(url.searchParams)
+  })
+  return seen
 }

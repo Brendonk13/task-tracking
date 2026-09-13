@@ -79,3 +79,30 @@ def test_generated_names_are_unique_across_sessions(client, seeded_names):
 
     duplicates = sorted({n for n in names if names.count(n) > 1})
     assert len(set(names)) == 50, f"duplicate names: {duplicates}"
+
+
+def test_list_sessions_orders_by_last_message_at_desc(client):
+    # Inserted deliberately out of the expected order, with the null-timestamp
+    # session registered first so "nulls last" is exercised too.
+    registrations = [
+        ("sess-no-message", None),
+        ("sess-0900", "2026-09-12T09:00:00Z"),
+        ("sess-1100", "2026-09-12T11:00:00Z"),
+        ("sess-1000", "2026-09-12T10:00:00Z"),
+    ]
+    for session_id, last_message_at in registrations:
+        payload = {"directory": "/home/me/proj"}
+        if last_message_at is not None:
+            payload["last_message_at"] = last_message_at
+        response = client.put(f"/sessions/{session_id}", json=payload)
+        assert response.status_code == 200
+
+    listing = client.get("/sessions")
+
+    assert listing.status_code == 200
+    assert [s["session_id"] for s in listing.json()] == [
+        "sess-1100",
+        "sess-1000",
+        "sess-0900",
+        "sess-no-message",
+    ]

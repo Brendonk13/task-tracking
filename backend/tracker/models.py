@@ -39,6 +39,7 @@ class Ticket(models.Model):
     priority = models.CharField(
         max_length=10, choices=Priority.choices, default=Priority.NONE
     )
+    linear_url = models.URLField(max_length=2000, null=True, blank=True)
     tags = models.ManyToManyField(Tag, related_name="tickets", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

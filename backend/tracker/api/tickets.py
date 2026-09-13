@@ -77,6 +77,7 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
         "title": ticket.title,
         "description": ticket.description,
         "priority": ticket.priority,
+        "linear_url": ticket.linear_url,
         "project": schemas.TicketDetail.resolve_project(ticket),
         "labels": schemas.TicketDetail.resolve_labels(ticket),
     }

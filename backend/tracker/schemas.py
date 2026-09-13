@@ -25,6 +25,7 @@ class TicketCreate(Schema):
     title: str
     description: str = ""
     priority: Priority = Priority.NONE
+    linear_url: str | None = None
     project: str | None = None
     labels: list[str] = []
     actor_session_id: str
@@ -34,6 +35,7 @@ class TicketPatch(Schema):
     title: str | None = None
     description: str | None = None
     priority: Priority | None = None
+    linear_url: str | None = None
     project: str | None = None
     labels: list[str] | None = None
     actor_session_id: str
@@ -64,6 +66,7 @@ class TicketListItem(Schema):
     id: int
     title: str
     priority: Priority
+    linear_url: str | None
     project: str | None
     labels: list[str]
     created_at: datetime

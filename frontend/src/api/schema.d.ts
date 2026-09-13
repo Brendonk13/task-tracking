@@ -3,10 +3,375 @@
  * Do not make direct changes to the file.
  */
 
-export type paths = Record<string, never>;
+export interface paths {
+    "/api/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tickets */
+        get: operations["tracker_api_tickets_list_tickets"];
+        put?: never;
+        /** Create Ticket */
+        post: operations["tracker_api_tickets_create_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tickets Summary */
+        get: operations["tracker_api_tickets_tickets_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ticket */
+        get: operations["tracker_api_tickets_get_ticket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Ticket */
+        patch: operations["tracker_api_tickets_patch_ticket"];
+        trace?: never;
+    };
+    "/api/tickets/{ticket_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Status */
+        post: operations["tracker_api_tickets_set_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{ticket_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Comment */
+        post: operations["tracker_api_tickets_add_comment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tickets/{ticket_id}/needs-human-eyes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Needs Human Eyes */
+        post: operations["tracker_api_tickets_set_needs_human_eyes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Register Session */
+        put: operations["tracker_api_sessions_register_session"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sessions */
+        get: operations["tracker_api_sessions_list_sessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Statuses */
+        get: operations["tracker_api_statuses_list_statuses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
+    schemas: {
+        /** Actor */
+        Actor: {
+            /** Session Id */
+            session_id: string;
+            /** Name */
+            name: string;
+            /** Directory */
+            directory: string | null;
+        };
+        /**
+         * Priority
+         * @enum {string}
+         */
+        Priority: "urgent" | "high" | "medium" | "low" | "none";
+        /** TicketDetail */
+        TicketDetail: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            priority: components["schemas"]["Priority"];
+            /** Status */
+            status: string | null;
+            /** Needs Human Eyes */
+            needs_human_eyes: boolean;
+            /** Linear Url */
+            linear_url: string | null;
+            /** Project */
+            project: string | null;
+            /** Labels */
+            labels: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Description */
+            description: string;
+            /** Timeline */
+            timeline: components["schemas"]["TimelineEntry"][];
+        };
+        /** TimelineEntry */
+        TimelineEntry: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            actor: components["schemas"]["Actor"];
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** From Status */
+            from_status: string | null;
+            /** To Status */
+            to_status: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /** TicketCreate */
+        TicketCreate: {
+            /** Title */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** @default none */
+            priority: components["schemas"]["Priority"];
+            /** Linear Url */
+            linear_url?: string | null;
+            /** Project */
+            project?: string | null;
+            /**
+             * Labels
+             * @default []
+             */
+            labels: string[];
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /**
+         * SortField
+         * @enum {string}
+         */
+        SortField: "created_at" | "updated_at" | "priority";
+        /**
+         * SortOrder
+         * @enum {string}
+         */
+        SortOrder: "asc" | "desc";
+        /** TicketListItem */
+        TicketListItem: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            priority: components["schemas"]["Priority"];
+            /** Status */
+            status: string | null;
+            /** Needs Human Eyes */
+            needs_human_eyes: boolean;
+            /** Linear Url */
+            linear_url: string | null;
+            /** Project */
+            project: string | null;
+            /** Labels */
+            labels: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** TicketsSummary */
+        TicketsSummary: {
+            /** Needs Human Eyes Count */
+            needs_human_eyes_count: number;
+        };
+        /** TicketPatch */
+        TicketPatch: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            priority?: components["schemas"]["Priority"] | null;
+            /** Linear Url */
+            linear_url?: string | null;
+            /** Project */
+            project?: string | null;
+            /** Labels */
+            labels?: string[] | null;
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /** StatusChangeIn */
+        StatusChangeIn: {
+            /** Status */
+            status: string;
+            /** Reason */
+            reason: string;
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /** CommentIn */
+        CommentIn: {
+            /** Body */
+            body: string;
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /** NeedsHumanEyesIn */
+        NeedsHumanEyesIn: {
+            /** Value */
+            value: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /** Session */
+        Session: {
+            /** Session Id */
+            session_id: string;
+            /** Name */
+            name: string;
+            /** Directory */
+            directory: string;
+            /** Last Message */
+            last_message: string | null;
+            /** Last Message At */
+            last_message_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** SessionIn */
+        SessionIn: {
+            /** Directory */
+            directory: string;
+            /** Last Message */
+            last_message?: string | null;
+            /** Last Message At */
+            last_message_at?: string | null;
+        };
+        /** StatusItem */
+        StatusItem: {
+            /** Name */
+            name: string;
+            /** Is Builtin */
+            is_builtin: boolean;
+        };
+    };
     responses: never;
     parameters: never;
     requestBodies: never;
@@ -14,4 +379,266 @@ export interface components {
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    tracker_api_tickets_list_tickets: {
+        parameters: {
+            query?: {
+                sort?: "created_at" | "updated_at" | "priority";
+                order?: "asc" | "desc";
+                needs_human_eyes?: boolean | null;
+                status?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketListItem"][];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_create_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_tickets_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketsSummary"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_get_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_patch_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_set_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusChangeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_add_comment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_set_needs_human_eyes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NeedsHumanEyesIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_sessions_register_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+        };
+    };
+    tracker_api_sessions_list_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"][];
+                };
+            };
+        };
+    };
+    tracker_api_statuses_list_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusItem"][];
+                };
+            };
+        };
+    };
+}

@@ -1,5 +1,7 @@
+from enum import Enum
 from typing import List
 
+from django.db.models import Case, IntegerField, Value, When
 from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.responses import Status
@@ -8,6 +10,25 @@ from tracker import models, schemas
 from tracker.services import actors
 
 router = Router(tags=["tickets"])
+
+PRIORITY_RANK = {
+    models.Priority.URGENT: 4,
+    models.Priority.HIGH: 3,
+    models.Priority.MEDIUM: 2,
+    models.Priority.LOW: 1,
+    models.Priority.NONE: 0,
+}
+
+
+class SortField(str, Enum):
+    created_at = "created_at"
+    updated_at = "updated_at"
+    priority = "priority"
+
+
+class SortOrder(str, Enum):
+    asc = "asc"
+    desc = "desc"
 
 
 def _tag(kind: models.TagKind, name: str) -> models.Tag:
@@ -85,8 +106,24 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
 
 
 @router.get("", response=List[schemas.TicketListItem])
-def list_tickets(request):
-    return models.Ticket.objects.order_by("-created_at", "-id")
+def list_tickets(
+    request,
+    sort: SortField = SortField.created_at,
+    order: SortOrder = SortOrder.desc,
+):
+    queryset = models.Ticket.objects.all()
+    sort_key = sort.value
+    if sort is SortField.priority:
+        sort_key = "priority_rank"
+        queryset = queryset.annotate(
+            priority_rank=Case(
+                *(When(priority=p, then=Value(rank)) for p, rank in PRIORITY_RANK.items()),
+                output_field=IntegerField(),
+            )
+        )
+    prefix = "-" if order is SortOrder.desc else ""
+    keys = dict.fromkeys([sort_key, "created_at", "id"])  # A9 tie-breaks, deduped
+    return queryset.order_by(*(f"{prefix}{key}" for key in keys))
 
 
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)

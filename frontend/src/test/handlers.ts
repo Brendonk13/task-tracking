@@ -20,6 +20,26 @@ export const BUILT_IN_STATUSES: StatusItem[] = [
   "done",
 ].map((name) => ({ name, is_builtin: true }))
 
+let nextTicketId = 1
+
+/** Builds a `TicketListItem` with sensible defaults; ids auto-increment per test file. */
+export function makeTicket(overrides: Partial<TicketListItem> = {}): TicketListItem {
+  const id = overrides.id ?? nextTicketId++
+  return {
+    id,
+    title: `Ticket ${id}`,
+    priority: "none",
+    status: null,
+    needs_human_eyes: false,
+    project: null,
+    labels: [],
+    linear_url: null,
+    created_at: "2026-09-12T10:00:00Z",
+    updated_at: "2026-09-12T10:00:00Z",
+    ...overrides,
+  }
+}
+
 /** MSW handler for `GET /api/tickets/summary` returning the given badge count. */
 export function summaryHandler(needs_human_eyes_count: number) {
   return http.get("/api/tickets/summary", () => {

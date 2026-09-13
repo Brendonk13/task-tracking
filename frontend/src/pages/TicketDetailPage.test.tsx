@@ -3,10 +3,12 @@ import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router-dom"
 import { TicketDetailPage } from "@/pages/TicketDetailPage"
 import {
+  BUILT_IN_STATUSES,
   HUMAN_ACTOR,
   makeTicketDetail,
   makeTimelineEntry,
   statefulTicketDetail,
+  statusesHandler,
   ticketDetailHandler,
 } from "@/test/handlers"
 import { server } from "@/test/msw"
@@ -27,6 +29,12 @@ function renderDetail(id: number) {
 // priority, status chip, project tag and label tags are plain visible text (Badges for
 // the chips/tags); tests find them with getByText, no aria-labels required.
 describe("TicketDetailPage", () => {
+  // The status form lists the statuses from GET /api/statuses; default to the built-ins so
+  // every test has that request handled.
+  beforeEach(() => {
+    server.use(statusesHandler())
+  })
+
   it("shows title, description, priority, current status, project tag and label tags", async () => {
     server.use(
       ticketDetailHandler(
@@ -290,5 +298,79 @@ describe("TicketDetailPage", () => {
     expect(within(posted!).getByText("human", { selector: "[data-slot='timeline-actor']" })).toBeVisible()
 
     expect(screen.getByRole("textbox", { name: /comment/i })).toHaveValue("")
+  })
+
+  // Status form convention: a native <select> with accessible name "Status" whose <option>s are
+  // the names from GET /api/statuses (built-ins then customs, option text = value = name), plus
+  // a final "Other…" option that reveals a textbox named "New status" for typing a brand-new
+  // one (not exercised here). A textbox named "Reason" (must not match /comment/i) and a button
+  // "Change status". Submitting posts {status, reason, actor_session_id: "human"}.
+  // The header's current-status chip is a Badge: getByText(name, { selector: "[data-slot='badge']" }).
+  it('human can change status via a select + reason field; request carries {status, reason, actor_session_id:"human"}', async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({ id: 7, title: "Fix login", status: "blocked", timeline: [] }),
+    )
+    server.use(
+      ...ticket.handlers,
+      statusesHandler([...BUILT_IN_STATUSES, { name: "waiting-on-vendor", is_builtin: false }]),
+    )
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    expect(screen.getByText("blocked", { selector: "[data-slot='badge']" })).toBeInTheDocument()
+
+    // Built-ins and customs from /api/statuses are both offered.
+    const select = await screen.findByRole("combobox", { name: /^status$/i })
+    expect(within(select).getByRole("option", { name: "blocked" })).toBeInTheDocument()
+    expect(within(select).getByRole("option", { name: "waiting-on-vendor" })).toBeInTheDocument()
+
+    await user.selectOptions(select, "waiting-on-vendor")
+    await user.type(screen.getByRole("textbox", { name: /reason/i }), "vendor replied")
+    await user.click(screen.getByRole("button", { name: /change status/i }))
+
+    await waitFor(() =>
+      expect(ticket.statusRequests).toEqual([
+        { status: "waiting-on-vendor", reason: "vendor replied", actor_session_id: "human" },
+      ]),
+    )
+
+    // The header chip and the timeline both reflect the change.
+    expect(
+      await screen.findByText("waiting-on-vendor", { selector: "[data-slot='badge']" }),
+    ).toBeInTheDocument()
+    const timeline = screen.getByRole("list", { name: /timeline/i })
+    const [event] = within(timeline).getAllByRole("listitem")
+    expect(event).toHaveAttribute("data-kind", "status_change")
+    expect(event).toHaveTextContent("human changed status from blocked to waiting-on-vendor")
+    expect(within(event!).getByText("vendor replied")).toBeVisible()
+  })
+
+  // Flag convention: a role="switch" named "Needs human eyes" in the header, checked iff
+  // ticket.needs_human_eyes. Toggling posts {value, actor_session_id: "human"} (reason optional).
+  it("human can toggle needs human eyes", async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({ id: 7, title: "Fix login", needs_human_eyes: false, timeline: [] }),
+    )
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    const toggle = screen.getByRole("switch", { name: /needs human eyes/i })
+    expect(toggle).not.toBeChecked()
+
+    await user.click(toggle)
+
+    await waitFor(() => expect(ticket.flagRequests).toHaveLength(1))
+    expect(ticket.flagRequests[0]).toMatchObject({ value: true, actor_session_id: "human" })
+
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: /needs human eyes/i })).toBeChecked(),
+    )
+    const timeline = screen.getByRole("list", { name: /timeline/i })
+    const [event] = within(timeline).getAllByRole("listitem")
+    expect(event).toHaveAttribute("data-kind", "flag_change")
+    expect(event).toHaveTextContent("human flagged needs human eyes")
   })
 })

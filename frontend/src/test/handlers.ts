@@ -9,6 +9,8 @@ type TicketDetail = components["schemas"]["TicketDetail"]
 type TimelineEntry = components["schemas"]["TimelineEntry"]
 type Actor = components["schemas"]["Actor"]
 type CommentIn = components["schemas"]["CommentIn"]
+type StatusChangeIn = components["schemas"]["StatusChangeIn"]
+type NeedsHumanEyesIn = components["schemas"]["NeedsHumanEyesIn"]
 
 /** The ten built-in statuses, in the canonical order `GET /api/statuses` returns them. */
 export const BUILT_IN_STATUSES: StatusItem[] = [
@@ -87,6 +89,8 @@ export function statefulTicketDetail(initial: TicketDetail) {
   let detail = initial
   let clock = 0
   const commentRequests: CommentIn[] = []
+  const statusRequests: StatusChangeIn[] = []
+  const flagRequests: NeedsHumanEyesIn[] = []
 
   const nextCreatedAt = () => {
     clock += 1
@@ -107,12 +111,60 @@ export function statefulTicketDetail(initial: TicketDetail) {
       detail = { ...detail, timeline: [...detail.timeline, entry], updated_at: entry.created_at }
       return HttpResponse.json(detail)
     }),
+    http.post(`/api/tickets/${initial.id}/status`, async ({ request }) => {
+      const body = (await request.json()) as StatusChangeIn
+      statusRequests.push(body)
+      const from = detail.status
+      if (from === body.status) return HttpResponse.json(detail) // no-op (B3.7)
+      const entry = makeTimelineEntry({
+        kind: "status_change",
+        actor: HUMAN_ACTOR,
+        body:
+          from === null
+            ? `human set status to ${body.status}`
+            : `human changed status from ${from} to ${body.status}`,
+        from_status: from,
+        to_status: body.status,
+        reason: body.reason,
+        created_at: nextCreatedAt(),
+      })
+      detail = {
+        ...detail,
+        status: body.status,
+        timeline: [...detail.timeline, entry],
+        updated_at: entry.created_at,
+      }
+      return HttpResponse.json(detail)
+    }),
+    http.post(`/api/tickets/${initial.id}/needs-human-eyes`, async ({ request }) => {
+      const body = (await request.json()) as NeedsHumanEyesIn
+      flagRequests.push(body)
+      if (detail.needs_human_eyes === body.value) return HttpResponse.json(detail) // no-op (A6)
+      const entry = makeTimelineEntry({
+        kind: "flag_change",
+        actor: HUMAN_ACTOR,
+        body: body.value ? "human flagged needs human eyes" : "human cleared needs human eyes",
+        reason: body.reason ?? null,
+        created_at: nextCreatedAt(),
+      })
+      detail = {
+        ...detail,
+        needs_human_eyes: body.value,
+        timeline: [...detail.timeline, entry],
+        updated_at: entry.created_at,
+      }
+      return HttpResponse.json(detail)
+    }),
   ]
 
   return {
     handlers,
     /** Parsed bodies of every `POST .../comments` seen, in order. */
     commentRequests,
+    /** Parsed bodies of every `POST .../status` seen, in order. */
+    statusRequests,
+    /** Parsed bodies of every `POST .../needs-human-eyes` seen, in order. */
+    flagRequests,
     /** The detail as the "server" currently has it. */
     current: () => detail,
   }

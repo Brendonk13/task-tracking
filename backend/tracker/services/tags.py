@@ -1,14 +1,15 @@
 """Project/label tags on a ticket (section 1 "Tag").
 
 A ticket has at most one ``project`` tag and any number of ``label`` tags.
-Tags are created on first use. ``labels`` are always de-duplicated and sorted.
+Tags are created on first use. ``labels`` are always stripped, de-duplicated,
+sorted, and free of blanks.
 """
 
 from tracker import models
 
 
 def normalize_labels(labels: list[str]) -> list[str]:
-    return sorted(set(labels))
+    return sorted({stripped for label in labels if (stripped := label.strip())})
 
 
 def project_of(ticket: models.Ticket) -> str | None:

@@ -30,6 +30,22 @@ class Session(Schema):
     created_at: datetime
 
 
+def _blank_to_none(value: str | None) -> str | None:
+    """``""`` (after stripping) means "no value" for optional string fields."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _stripped_non_empty(value: str) -> str:
+    """Required free-text fields: strip, then reject whitespace-only with 422."""
+    value = value.strip()
+    if not value:
+        raise ValueError("must not be empty")
+    return value
+
+
 class TicketCreate(Schema):
     title: str
     description: str = ""
@@ -39,18 +55,20 @@ class TicketCreate(Schema):
     labels: list[str] = []
     actor_session_id: str
 
-    @field_validator("project")
+    @field_validator("title")
     @classmethod
-    def blank_project_is_none(cls, value: str | None) -> str | None:
+    def title_non_empty(cls, value: str) -> str:
+        return _stripped_non_empty(value)
+
+    @field_validator("project", "linear_url")
+    @classmethod
+    def blank_is_none(cls, value: str | None) -> str | None:
         return _blank_to_none(value)
 
-
-def _blank_to_none(value: str | None) -> str | None:
-    """``""`` (after stripping) means "no value" for optional string fields."""
-    if value is None:
-        return None
-    value = value.strip()
-    return value or None
+    @field_validator("labels")
+    @classmethod
+    def normalize_labels(cls, value: list[str]) -> list[str]:
+        return tags.normalize_labels(value)
 
 
 PATCH_NON_NULLABLE = ("title", "description", "priority", "labels")
@@ -68,10 +86,20 @@ class TicketPatch(Schema):
     labels: list[str] | None = None
     actor_session_id: str
 
-    @field_validator("project")
+    @field_validator("title")
     @classmethod
-    def blank_project_is_none(cls, value: str | None) -> str | None:
+    def title_non_empty(cls, value: str | None) -> str | None:
+        return value if value is None else _stripped_non_empty(value)
+
+    @field_validator("project", "linear_url")
+    @classmethod
+    def blank_is_none(cls, value: str | None) -> str | None:
         return _blank_to_none(value)
+
+    @field_validator("labels")
+    @classmethod
+    def normalize_labels(cls, value: list[str] | None) -> list[str] | None:
+        return value if value is None else tags.normalize_labels(value)
 
     @model_validator(mode="after")
     def reject_null_on_non_nullable(self):
@@ -111,9 +139,7 @@ class CommentIn(Schema):
     @field_validator("body")
     @classmethod
     def non_empty(cls, value: str) -> str:
-        if not value:
-            raise ValueError("must not be empty")
-        return value
+        return _stripped_non_empty(value)
 
 
 class NeedsHumanEyesIn(Schema):

@@ -116,7 +116,10 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Register Session */
+        /**
+         * Register Session
+         * @description Idempotent upsert (A10). ``name`` is generated once, on first registration.
+         */
         put: operations["tracker_api_sessions_register_session"];
         post?: never;
         delete?: never;
@@ -213,8 +216,7 @@ export interface components {
         TimelineEntry: {
             /** Id */
             id: number;
-            /** Kind */
-            kind: string;
+            kind: components["schemas"]["TimelineKind"];
             actor: components["schemas"]["Actor"];
             /** Body */
             body: string;
@@ -230,6 +232,11 @@ export interface components {
             /** Reason */
             reason: string | null;
         };
+        /**
+         * TimelineKind
+         * @enum {string}
+         */
+        TimelineKind: "comment" | "status_change" | "flag_change" | "field_change";
         /** TicketCreate */
         TicketCreate: {
             /** Title */
@@ -296,7 +303,11 @@ export interface components {
             /** Needs Human Eyes Count */
             needs_human_eyes_count: number;
         };
-        /** TicketPatch */
+        /**
+         * TicketPatch
+         * @description A4: per-key replace; omitted keys are untouched. Only ``project`` and
+         *     ``linear_url`` may be cleared with an explicit ``null``.
+         */
         TicketPatch: {
             /** Title */
             title?: string | null;

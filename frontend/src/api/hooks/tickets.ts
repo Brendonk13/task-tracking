@@ -58,15 +58,11 @@ type ApiResult = { data?: TicketDetail; error?: unknown }
  * A human-actor mutation on one ticket. Every mutating endpoint returns the updated
  * `TicketDetail` (A3), which replaces the cached detail so the page re-renders at once.
  */
-function useTicketMutation<TVars>(
-  id: number,
-  request: (vars: TVars) => Promise<ApiResult>,
-  failureMessage: string,
-) {
+function useTicketMutation<TVars>(id: number, request: (vars: TVars) => Promise<ApiResult>) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (vars: TVars): Promise<TicketDetail> => {
-      return unwrap(await request(vars), failureMessage)
+      return unwrap(await request(vars), "Ticket update failed")
     },
     onSuccess: (detail) => {
       queryClient.setQueryData(ticketDetailQueryKey(id), detail)
@@ -82,7 +78,6 @@ export function useAddComment(id: number) {
         params: { path: { ticket_id: id } },
         body: { body, actor_session_id: HUMAN } satisfies CommentIn,
       }),
-    "Failed to post comment",
   )
 }
 
@@ -94,7 +89,6 @@ export function useChangeStatus(id: number) {
         params: { path: { ticket_id: id } },
         body: { ...vars, actor_session_id: HUMAN } satisfies StatusChangeIn,
       }),
-    "Failed to change status",
   )
 }
 
@@ -106,6 +100,5 @@ export function useSetNeedsHumanEyes(id: number) {
         params: { path: { ticket_id: id } },
         body: { value, actor_session_id: HUMAN } satisfies NeedsHumanEyesIn,
       }),
-    "Failed to update needs human eyes",
   )
 }

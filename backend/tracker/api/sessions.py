@@ -21,11 +21,15 @@ def _unused_name() -> str:
 
 @router.put("/{session_id}", response=schemas.Session)
 def register_session(request, session_id: str, payload: schemas.SessionIn):
-    session, _created = models.Session.objects.update_or_create(
-        session_id=session_id,
-        defaults=payload.dict(exclude_unset=True),
-        create_defaults={"name": _unused_name(), **payload.dict()},
-    )
+    """Idempotent upsert (A10). ``name`` is generated once, on first registration."""
+    session = models.Session.objects.filter(session_id=session_id).first()
+    if session is None:
+        return models.Session.objects.create(
+            session_id=session_id, name=_unused_name(), **payload.dict()
+        )
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(session, field, value)  # omitted keys kept, explicit null clears
+    session.save()
     return session
 
 

@@ -132,6 +132,8 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
     ticket = get_object_or_404(models.Ticket, id=ticket_id)
     actor = actors.resolve_actor(payload.actor_session_id)
     from_status = ticket.status.name if ticket.status else None
+    if from_status == payload.status:
+        return ticket  # B3.7 no-op: same status, nothing written
     status, _created = models.Status.objects.get_or_create(name=payload.status)
     ticket.status = status
     ticket.save()

@@ -187,3 +187,39 @@ def test_list_tickets_sort_by_priority_puts_urgent_before_low(client):
         "medium",
         "urgent",
     ]
+
+
+def test_ticket_stores_linear_url(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    linear_url = "https://linear.app/avantos/issue/AVA-123/fix-login"
+
+    created = client.post(
+        "/tickets",
+        json={"title": "Fix login", "linear_url": linear_url, "actor_session_id": actor},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["linear_url"] == linear_url
+    linked_id = created.json()["id"]
+
+    fetched = client.get(f"/tickets/{linked_id}")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["linear_url"] == linear_url
+
+    unlinked = client.post(
+        "/tickets",
+        json={"title": "No Linear issue", "actor_session_id": actor},
+    )
+
+    assert unlinked.status_code == 201
+    assert unlinked.json()["linear_url"] is None
+    unlinked_id = unlinked.json()["id"]
+
+    listing = client.get("/tickets")
+
+    assert listing.status_code == 200
+    by_id = {row["id"]: row for row in listing.json()}
+    assert by_id[linked_id]["linear_url"] == linear_url
+    assert by_id[unlinked_id]["linear_url"] is None

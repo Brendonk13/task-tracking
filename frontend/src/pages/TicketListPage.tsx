@@ -1,4 +1,6 @@
+import { useState } from "react"
 import { useTickets, type TicketListItem } from "@/api/hooks/tickets"
+import { StatusFilter } from "@/components/tickets/StatusFilter"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -38,13 +40,19 @@ function StatusChip({ status }: { status: string | null }) {
 }
 
 export function TicketListPage() {
-  const { data: tickets, isPending, isError } = useTickets()
+  const [statuses, setStatuses] = useState<string[]>([])
+  const { data: tickets, isPending, isError } = useTickets(
+    statuses.length > 0 ? { status: statuses } : {},
+  )
 
   return (
     <section aria-labelledby="tickets-heading" className="flex flex-col gap-4">
-      <h1 id="tickets-heading" className="text-2xl font-semibold tracking-tight">
-        Tickets
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 id="tickets-heading" className="text-2xl font-semibold tracking-tight">
+          Tickets
+        </h1>
+        <StatusFilter selected={statuses} onChange={setStatuses} />
+      </div>
 
       {isPending && <p className="text-sm text-muted-foreground">Loading tickets…</p>}
       {isError && (

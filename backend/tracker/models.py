@@ -42,3 +42,16 @@ class Ticket(models.Model):
     tags = models.ManyToManyField(Tag, related_name="tickets", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class TimelineEntry(models.Model):
+    FIELD_CHANGE = "field_change"
+
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="timeline")
+    kind = models.CharField(max_length=20)
+    actor_session_id = models.CharField(max_length=255)
+    body = models.TextField()
+    from_status = models.CharField(max_length=100, null=True, blank=True)
+    to_status = models.CharField(max_length=100, null=True, blank=True)
+    reason = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

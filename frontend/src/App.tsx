@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom"
 import { AppShell } from "@/components/layout/AppShell"
 import { SessionsPage } from "@/pages/SessionsPage"
+import { TicketDetailPage } from "@/pages/TicketDetailPage"
 import { TicketListPage } from "@/pages/TicketListPage"
 
 export default function App() {
@@ -8,6 +9,7 @@ export default function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<TicketListPage />} />
+        <Route path="tickets/:id" element={<TicketDetailPage />} />
         <Route path="sessions" element={<SessionsPage />} />
       </Route>
     </Routes>

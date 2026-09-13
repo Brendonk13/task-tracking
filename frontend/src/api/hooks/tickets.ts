@@ -36,3 +36,23 @@ export function useTickets(query: TicketListQuery = {}) {
     },
   })
 }
+
+export type TicketDetail = components["schemas"]["TicketDetail"]
+export type TimelineEntry = components["schemas"]["TimelineEntry"]
+
+export const ticketDetailQueryKey = (id: number) => ["tickets", "detail", id] as const
+
+export function useTicket(id: number) {
+  return useQuery({
+    queryKey: ticketDetailQueryKey(id),
+    queryFn: async (): Promise<TicketDetail> => {
+      const { data, error } = await api.GET("/api/tickets/{ticket_id}", {
+        params: { path: { ticket_id: id } },
+      })
+      if (error !== undefined || data === undefined) {
+        throw new Error("Failed to load ticket")
+      }
+      return data
+    },
+  })
+}

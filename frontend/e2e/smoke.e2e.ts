@@ -131,4 +131,17 @@ test("a session posts a blocked ticket and the human sees it in the UI", async (
     const row = page.getByRole("row").filter({ hasText: title })
     await expect(row.getByRole("img", { name: "Needs human eyes" })).toBeVisible()
   })
+
+  // --- 6. The needs-human-eyes filter: URL reflects it and the flagged ticket is listed ---
+  await test.step("filtering by needs human eyes updates the URL and lists the flagged ticket", async () => {
+    // Same click() + toBeChecked() pattern as the status filter: the switch is URL-controlled.
+    const toggle = page.getByRole("switch", { name: "Needs human eyes" })
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+
+    await expect(page).toHaveURL(/[?&]needs_human_eyes=true(&|$)/)
+    const row = page.getByRole("row").filter({ hasText: title })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByRole("img", { name: "Needs human eyes" })).toBeVisible()
+  })
 })

@@ -89,3 +89,8 @@ class TicketDetail(TicketListItem):
     @staticmethod
     def resolve_timeline(obj):
         return obj.timeline.order_by("created_at", "id")
+
+
+class StatusItem(Schema):
+    name: str
+    is_builtin: bool

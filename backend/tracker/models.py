@@ -56,3 +56,9 @@ class TimelineEntry(models.Model):
     to_status = models.CharField(max_length=100, null=True, blank=True)
     reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class Status(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    is_builtin = models.BooleanField(default=False)
+    position = models.PositiveIntegerField(null=True, blank=True)

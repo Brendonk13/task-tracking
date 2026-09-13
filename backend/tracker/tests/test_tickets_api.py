@@ -83,3 +83,42 @@ def test_create_ticket_with_project_and_labels_returns_them_as_tags(client):
     fetched_body = fetched.json()
     assert fetched_body["project"] == "avantos"
     assert fetched_body["labels"] == ["ai", "infra"]
+
+
+def test_patch_ticket_updates_fields_and_records_field_change_in_timeline(client):
+    session_id = "c2e8a4f6-1b3d-4d97-8e5c-6a0f2d9b4c13"
+    session = register_session(client, session_id=session_id)
+    name = session["name"]
+
+    created = client.post(
+        "/tickets",
+        json={"title": "Fix login", "actor_session_id": session_id},
+    )
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    patched = client.patch(
+        f"/tickets/{ticket_id}",
+        json={"priority": "urgent", "actor_session_id": session_id},
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["priority"] == "urgent"
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["priority"] == "urgent"
+
+    timeline = body["timeline"]
+    assert isinstance(timeline, list)
+    assert len(timeline) == 1
+    entry = timeline[0]
+    assert entry["kind"] == "field_change"
+    assert entry["body"] == f"{name} changed priority from none to urgent"
+    assert entry["actor"]["name"] == name
+    assert entry["actor"]["session_id"] == session_id
+    assert entry["from_status"] is None
+    assert entry["to_status"] is None
+    assert entry["reason"] is None

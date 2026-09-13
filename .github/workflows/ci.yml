@@ -32,7 +32,7 @@ jobs:
       - run: uv run pytest -q
 
   frontend:
-    name: Frontend (vitest + typecheck)
+    name: Frontend (lint + vitest + typecheck)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,6 +48,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
       - run: pnpm test --run
       - run: pnpm typecheck
 
@@ -74,3 +75,34 @@ jobs:
       # Exports the OpenAPI doc from the NinjaAPI object (no server), regenerates
       # frontend/src/api/schema.d.ts, and fails if the committed file differs.
       - run: make check-contract
+
+  e2e:
+    name: E2E (Playwright smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: cd backend && uv sync --locked
+      - run: cd frontend && pnpm install --frozen-lockfile
+      - run: cd frontend && pnpm exec playwright install --with-deps chromium
+      # playwright.config.ts starts its own Django (:8000) and Vite (:5180) against a
+      # throwaway SQLite DB under frontend/e2e/.tmp/.
+      - run: cd frontend && pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-test-results
+          path: frontend/test-results
+          if-no-files-found: ignore

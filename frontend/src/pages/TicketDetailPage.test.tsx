@@ -443,7 +443,8 @@ describe("TicketDetailPage", () => {
     const ticket = statefulTicketDetail(
       makeTicketDetail({ id: 7, title: "Fix login", status: "blocked", timeline: [] }),
     )
-    server.use(...ticket.handlers)
+    // Stateful statuses: after the POST, GET /api/statuses lists the new custom status.
+    server.use(...ticket.handlers, ticket.statusesHandler)
     renderDetail(7)
 
     const select = await screen.findByRole("combobox", { name: /^status$/i })
@@ -459,6 +460,16 @@ describe("TicketDetailPage", () => {
     )
     expect(
       await screen.findByText("waiting-on-vendor", { selector: "[data-slot='badge']" }),
+    ).toBeInTheDocument()
+
+    // The new custom status is now a real option and the select shows it as current.
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /^status$/i })).toHaveValue("waiting-on-vendor"),
+    )
+    expect(
+      within(screen.getByRole("combobox", { name: /^status$/i })).getByRole("option", {
+        name: "waiting-on-vendor",
+      }),
     ).toBeInTheDocument()
   })
 
@@ -498,5 +509,51 @@ describe("TicketDetailPage", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: /comment/i })).toHaveValue(""))
     // ...and the keyboard user is back in the box, ready for the next comment.
     await waitFor(() => expect(screen.getByRole("textbox", { name: /comment/i })).toHaveFocus())
+  })
+
+  // A background refetch (window focus, invalidation after another mutation, polling) is
+  // simulated by invalidating the detail query on the test's QueryClient — the same code path
+  // react-query's refetchOnWindowFocus takes, without relying on jsdom visibility events.
+  it("status select follows the ticket when a background refetch changes the status", async () => {
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({ id: 7, title: "Fix login", status: "blocked", timeline: [] }),
+    )
+    server.use(...ticket.handlers)
+    const { queryClient } = renderWithProviders(
+      <Routes>
+        <Route path="/tickets/:id" element={<TicketDetailPage />} />
+      </Routes>,
+      { route: "/tickets/7" },
+    )
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    // Options arrive from /api/statuses separately, so wait for the select to settle on "blocked".
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /^status$/i })).toHaveValue("blocked"),
+    )
+
+    // A Claude session moves the ticket on; the page refetches.
+    ticket.setStatus("planning", "starting work")
+    await queryClient.invalidateQueries({ queryKey: ["tickets", "detail", 7] })
+
+    expect(
+      await screen.findByText("planning", { selector: "[data-slot='badge']" }),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /^status$/i })).toHaveValue("planning"),
+    )
+  })
+
+  // Empty-timeline convention: the text "No activity yet." replaces (or accompanies an empty)
+  // Timeline list when the ticket has no entries.
+  it("shows an empty timeline message when there is no activity", async () => {
+    server.use(ticketDetailHandler(makeTicketDetail({ id: 7, title: "Fix login", timeline: [] })))
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    expect(await screen.findByText("No activity yet.")).toBeInTheDocument()
+
+    const timeline = screen.queryByRole("list", { name: /timeline/i })
+    if (timeline !== null) expect(within(timeline).queryAllByRole("listitem")).toHaveLength(0)
   })
 })

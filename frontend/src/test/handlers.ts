@@ -91,6 +91,35 @@ export function statefulTicketDetail(initial: TicketDetail) {
   const commentRequests: CommentIn[] = []
   const statusRequests: StatusChangeIn[] = []
   const flagRequests: NeedsHumanEyesIn[] = []
+  /** Custom statuses this "server" has seen, in first-use order (A13 lists them sorted). */
+  const customStatuses: string[] = []
+
+  const rememberCustom = (name: string) => {
+    if (!BUILT_IN_STATUSES.some((s) => s.name === name) && !customStatuses.includes(name)) {
+      customStatuses.push(name)
+    }
+  }
+
+  /** Applies a status change by `actor`; returns false when it is a no-op (same status). */
+  const applyStatus = (status: string, reason: string, actor: Actor): boolean => {
+    const from = detail.status
+    if (from === status) return false
+    rememberCustom(status)
+    const entry = makeTimelineEntry({
+      kind: "status_change",
+      actor,
+      body:
+        from === null
+          ? `${actor.name} set status to ${status}`
+          : `${actor.name} changed status from ${from} to ${status}`,
+      from_status: from,
+      to_status: status,
+      reason,
+      created_at: nextCreatedAt(),
+    })
+    detail = { ...detail, status, timeline: [...detail.timeline, entry], updated_at: entry.created_at }
+    return true
+  }
 
   const nextCreatedAt = () => {
     clock += 1
@@ -114,26 +143,7 @@ export function statefulTicketDetail(initial: TicketDetail) {
     http.post(`/api/tickets/${initial.id}/status`, async ({ request }) => {
       const body = (await request.json()) as StatusChangeIn
       statusRequests.push(body)
-      const from = detail.status
-      if (from === body.status) return HttpResponse.json(detail) // no-op (B3.7)
-      const entry = makeTimelineEntry({
-        kind: "status_change",
-        actor: HUMAN_ACTOR,
-        body:
-          from === null
-            ? `human set status to ${body.status}`
-            : `human changed status from ${from} to ${body.status}`,
-        from_status: from,
-        to_status: body.status,
-        reason: body.reason,
-        created_at: nextCreatedAt(),
-      })
-      detail = {
-        ...detail,
-        status: body.status,
-        timeline: [...detail.timeline, entry],
-        updated_at: entry.created_at,
-      }
+      applyStatus(body.status, body.reason, HUMAN_ACTOR) // same status → no-op (B3.7)
       return HttpResponse.json(detail)
     }),
     http.post(`/api/tickets/${initial.id}/needs-human-eyes`, async ({ request }) => {
@@ -167,6 +177,27 @@ export function statefulTicketDetail(initial: TicketDetail) {
     flagRequests,
     /** The detail as the "server" currently has it. */
     current: () => detail,
+    /**
+     * Changes the status "from elsewhere" (a Claude session, not the UI under test), so the
+     * next GET returns the new status plus its status_change entry. Use it to simulate
+     * background activity the page must pick up on refetch.
+     */
+    setStatus: (status: string, reason = "changed elsewhere") =>
+      applyStatus(status, reason, {
+        session_id: "sess-1",
+        name: "cool-willow",
+        directory: "/home/dev/app",
+      }),
+    /**
+     * `GET /api/statuses` that follows this "server": built-ins in canonical order, then every
+     * custom status seen via the status POST or `setStatus`, sorted by name (A13).
+     */
+    statusesHandler: http.get("/api/statuses", () => {
+      const customs: StatusItem[] = [...customStatuses]
+        .sort()
+        .map((name) => ({ name, is_builtin: false }))
+      return HttpResponse.json([...BUILT_IN_STATUSES, ...customs])
+    }),
     /**
      * `GET /api/tickets/summary` for a world containing only this ticket: the count is 1 while
      * it needs human eyes, else 0, and follows the flag mutation above.

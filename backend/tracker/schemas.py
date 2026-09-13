@@ -3,7 +3,7 @@ from datetime import datetime
 from ninja import Schema
 from pydantic import field_validator
 
-from tracker.models import Priority, TagKind
+from tracker.models import Priority, TagKind, TimelineKind
 from tracker.services import actors
 
 
@@ -86,7 +86,7 @@ class Actor(Schema):
 
 class TimelineEntry(Schema):
     id: int
-    kind: str
+    kind: TimelineKind
     actor: Actor
     body: str
     created_at: datetime

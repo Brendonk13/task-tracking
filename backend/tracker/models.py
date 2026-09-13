@@ -55,14 +55,16 @@ class Ticket(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class TimelineEntry(models.Model):
-    FIELD_CHANGE = "field_change"
-    STATUS_CHANGE = "status_change"
+class TimelineKind(models.TextChoices):
     COMMENT = "comment"
+    STATUS_CHANGE = "status_change"
     FLAG_CHANGE = "flag_change"
+    FIELD_CHANGE = "field_change"
 
+
+class TimelineEntry(models.Model):
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="timeline")
-    kind = models.CharField(max_length=20)
+    kind = models.CharField(max_length=20, choices=TimelineKind.choices)
     actor_session_id = models.CharField(max_length=255)
     body = models.TextField()
     from_status = models.CharField(max_length=100, null=True, blank=True)

@@ -103,7 +103,7 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
             setattr(ticket, field, new)
         models.TimelineEntry.objects.create(
             ticket=ticket,
-            kind=models.TimelineEntry.FIELD_CHANGE,
+            kind=models.TimelineKind.FIELD_CHANGE,
             actor_session_id=payload.actor_session_id,
             body=_field_change_body(actor["name"], field, old, new),
         )
@@ -158,7 +158,7 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
         body = f"{actor['name']} changed status from {from_status} to {status.name}"
     models.TimelineEntry.objects.create(
         ticket=ticket,
-        kind=models.TimelineEntry.STATUS_CHANGE,
+        kind=models.TimelineKind.STATUS_CHANGE,
         actor_session_id=payload.actor_session_id,
         body=body,
         from_status=from_status,
@@ -174,7 +174,7 @@ def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
     actors.resolve_actor(payload.actor_session_id)
     models.TimelineEntry.objects.create(
         ticket=ticket,
-        kind=models.TimelineEntry.COMMENT,
+        kind=models.TimelineKind.COMMENT,
         actor_session_id=payload.actor_session_id,
         body=payload.body,
     )
@@ -193,7 +193,7 @@ def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEye
     verb = "flagged" if payload.value else "cleared"
     models.TimelineEntry.objects.create(
         ticket=ticket,
-        kind=models.TimelineEntry.FLAG_CHANGE,
+        kind=models.TimelineKind.FLAG_CHANGE,
         actor_session_id=payload.actor_session_id,
         body=f"{actor['name']} {verb} needs human eyes",
         reason=payload.reason,

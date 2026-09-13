@@ -36,7 +36,7 @@ Other targets:
 | `make test` | Backend `pytest`, then frontend `vitest` and `tsc` typecheck. |
 | `make check-contract` | Regenerates `frontend/src/api/schema.d.ts` and fails if it differs from the committed file. |
 | `make gen-api` | Regenerates the TypeScript API types from the backend (see "Type flow"). |
-| `make e2e` | Playwright smoke test against a real backend. Run `cd frontend && pnpm exec playwright install chromium` once first. Tests live under `frontend/e2e/` (task 8.1). |
+| `make e2e` | Playwright smoke test against a real backend (`frontend/e2e/`, task 8.1). It starts its own Django on `:8000` and Vite on `:5180` with a throwaway SQLite DB under `frontend/e2e/.tmp/` (`reuseExistingServer: false`), so stop `make dev` first or the backend port collides. Run `cd frontend && pnpm exec playwright install chromium` once before the first run. |
 
 ## For LLM sessions: how to register yourself and post
 

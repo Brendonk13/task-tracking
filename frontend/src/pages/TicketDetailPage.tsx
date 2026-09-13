@@ -253,8 +253,11 @@ export function TicketDetailPage() {
         {ticket.description !== "" && (
           <p className="text-sm text-foreground/90 whitespace-pre-wrap">{ticket.description}</p>
         )}
-        <StatusForm ticket={ticket} />
       </header>
+
+      <section aria-label="Change status" className="border-t pt-3">
+        <StatusForm ticket={ticket} />
+      </section>
 
       <section aria-labelledby="timeline-heading" className="flex flex-col gap-3">
         <h2 id="timeline-heading" className="text-lg font-medium">

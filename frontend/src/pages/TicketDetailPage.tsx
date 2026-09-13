@@ -108,13 +108,15 @@ function CommentForm({ ticketId }: { ticketId: number }) {
 
 function StatusForm({ ticket }: { ticket: TicketDetail }) {
   const { data: statuses } = useStatuses()
-  const [selected, setSelected] = useState(ticket.status ?? "")
+  // null = follow the ticket's current status (so background refetches re-seed the select).
+  const [selected, setSelected] = useState<string | null>(null)
   const [newStatus, setNewStatus] = useState("")
   const [reason, setReason] = useState("")
   const reasonRef = useRef<HTMLInputElement>(null)
   const changeStatus = useChangeStatus(ticket.id)
 
-  const status = selected === OTHER_STATUS ? newStatus.trim() : selected
+  const effective = selected ?? ticket.status ?? ""
+  const status = effective === OTHER_STATUS ? newStatus.trim() : effective
   const canSubmit = status !== "" && reason.trim() !== "" && !changeStatus.isPending
 
   return (
@@ -126,8 +128,8 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
         changeStatus.mutate(
           { status, reason: reason.trim() },
           {
-            onSuccess: (detail) => {
-              setSelected(detail.status ?? "")
+            onSuccess: () => {
+              setSelected(null)
               setNewStatus("")
               setReason("")
               reasonRef.current?.focus()
@@ -141,11 +143,11 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
           <Label htmlFor="status-select">Status</Label>
           <select
             id="status-select"
-            value={selected}
+            value={effective}
             onChange={(event) => setSelected(event.target.value)}
             className="h-8 min-w-40 rounded-md border border-input bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            {ticket.status === null && (
+            {effective === "" && (
               <option value="" disabled>
                 no status
               </option>
@@ -158,7 +160,7 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
             <option value={OTHER_STATUS}>Other…</option>
           </select>
         </div>
-        {selected === OTHER_STATUS && (
+        {effective === OTHER_STATUS && (
           <div className="flex flex-col gap-1">
             <Label htmlFor="new-status">New status</Label>
             <Input
@@ -266,11 +268,15 @@ export function TicketDetailPage() {
         <h2 id="timeline-heading" className="text-lg font-medium">
           Timeline
         </h2>
-        <ol aria-label="Timeline" className="flex flex-col gap-3 border-l pl-4">
-          {ticket.timeline.map((entry) => (
-            <TimelineItem key={entry.id} entry={entry} />
-          ))}
-        </ol>
+        {ticket.timeline.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No activity yet.</p>
+        ) : (
+          <ol aria-label="Timeline" className="flex flex-col gap-3 border-l pl-4">
+            {ticket.timeline.map((entry) => (
+              <TimelineItem key={entry.id} entry={entry} />
+            ))}
+          </ol>
+        )}
         <CommentForm ticketId={ticketId} />
       </section>
     </article>

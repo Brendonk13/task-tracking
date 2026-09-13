@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api, unwrap } from "@/api/client"
 import type { components, paths } from "@/api/schema.d.ts"
+import { statusesQueryKey } from "@/api/hooks/statuses"
 
 export type TicketsSummary = components["schemas"]["TicketsSummary"]
 
@@ -60,7 +61,12 @@ type ApiResult = { data?: TicketDetail; error?: unknown }
  * A human-actor mutation on one ticket. Every mutating endpoint returns the updated
  * `TicketDetail` (A3), which replaces the cached detail so the page re-renders at once.
  */
-function useTicketMutation<TVars>(id: number, request: (vars: TVars) => Promise<ApiResult>) {
+function useTicketMutation<TVars>(
+  id: number,
+  request: (vars: TVars) => Promise<ApiResult>,
+  /** Extra query keys to invalidate on success, beyond the list and summary. */
+  alsoInvalidate: readonly (readonly unknown[])[] = [],
+) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (vars: TVars): Promise<TicketDetail> => {
@@ -71,6 +77,7 @@ function useTicketMutation<TVars>(id: number, request: (vars: TVars) => Promise<
       // The list rows and the sidebar badge derive from the same ticket; refresh them.
       void queryClient.invalidateQueries({ queryKey: ticketsListQueryKey })
       void queryClient.invalidateQueries({ queryKey: ticketsSummaryQueryKey })
+      for (const queryKey of alsoInvalidate) void queryClient.invalidateQueries({ queryKey })
     },
   })
 }
@@ -94,6 +101,8 @@ export function useChangeStatus(id: number) {
         params: { path: { ticket_id: id } },
         body: { ...vars, actor_session_id: HUMAN } satisfies StatusChangeIn,
       }),
+    // A brand-new custom status must show up in the select's options.
+    [statusesQueryKey],
   )
 }
 

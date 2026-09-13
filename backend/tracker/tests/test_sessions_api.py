@@ -148,3 +148,17 @@ def test_naive_last_message_at_is_treated_as_utc(client):
 
     assert response.status_code == 200
     assert response.json()["last_message_at"] == "2026-09-12T10:00:00Z"
+
+
+# --- Pin: the reserved actor literal can never be registered as a session ---
+
+
+def test_reserved_session_id_human_is_rejected(client):
+    response = client.put("/sessions/human", json={"directory": "/home/me/proj"})
+
+    assert response.status_code == 422
+
+    listing = client.get("/sessions")
+
+    assert listing.status_code == 200
+    assert listing.json() == []

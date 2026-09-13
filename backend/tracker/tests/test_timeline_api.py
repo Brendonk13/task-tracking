@@ -192,3 +192,38 @@ def test_timeline_actor_includes_session_id_directory_and_name(client):
         "name": name,
         "directory": "/home/me/work/api",
     }
+
+
+# --- Pin: actor resolution must not depend on the Session row still existing ---
+
+
+def test_detail_survives_deleted_session_actor(client):
+    session_id = "9c4b2e7a-3d1f-4a68-b5c0-8e6d2f9a1b37"
+    register_session(client, session_id=session_id)
+
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": session_id})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    commented = client.post(
+        f"/tickets/{ticket_id}/comments",
+        json={"body": "Looking into it.", "actor_session_id": session_id},
+    )
+    assert commented.status_code == 200
+
+    # Out-of-band ORM access is deliberately allowed here (and only here): there is
+    # no API to delete a session, and the point of this pin is that the timeline
+    # must survive a Session row disappearing underneath it.
+    # ``TimelineEntry.actor_session_id`` is a plain CharField (no FK), so this does
+    # not cascade to the timeline entry.
+    from tracker.models import Session
+
+    Session.objects.filter(session_id=session_id).delete()
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    timeline = fetched.json()["timeline"]
+    assert len(timeline) == 1
+    assert timeline[0]["kind"] == "comment"
+    assert timeline[0]["actor"] == {"session_id": session_id, "name": session_id, "directory": None}

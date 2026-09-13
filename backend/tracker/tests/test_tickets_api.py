@@ -484,3 +484,122 @@ def test_human_actor_on_patch_status_and_flag(client):
         e["actor"] == {"session_id": "human", "name": "human", "directory": None}
         for e in timeline
     )
+
+
+# --- Pins: input normalisation and validation on ticket endpoints ---
+
+
+def test_labels_are_stripped_and_blank_labels_dropped(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Fix login",
+            "labels": ["", "  ai ", "ai", " infra"],
+            "actor_session_id": actor,
+        },
+    )
+
+    assert created.status_code == 201
+    assert created.json()["labels"] == ["ai", "infra"]
+    ticket_id = created.json()["id"]
+    assert _detail(client, ticket_id)["labels"] == ["ai", "infra"]
+
+    patched = client.patch(
+        f"/tickets/{ticket_id}", json={"labels": ["  ", "docs "], "actor_session_id": actor}
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["labels"] == ["docs"]
+    assert _detail(client, ticket_id)["labels"] == ["docs"]
+
+
+def test_blank_linear_url_is_null(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    created = client.post(
+        "/tickets", json={"title": "Fix login", "linear_url": "", "actor_session_id": actor}
+    )
+
+    assert created.status_code == 201
+    assert created.json()["linear_url"] is None
+    ticket_id = created.json()["id"]
+
+    linked = client.patch(
+        f"/tickets/{ticket_id}",
+        json={
+            "linear_url": "https://linear.app/avantos/issue/AVA-123/fix-login",
+            "actor_session_id": actor,
+        },
+    )
+    assert linked.status_code == 200
+    assert linked.json()["linear_url"] == "https://linear.app/avantos/issue/AVA-123/fix-login"
+
+    blanked = client.patch(
+        f"/tickets/{ticket_id}", json={"linear_url": "   ", "actor_session_id": actor}
+    )
+
+    assert blanked.status_code == 200
+    assert blanked.json()["linear_url"] is None
+    assert _detail(client, ticket_id)["linear_url"] is None
+
+
+def test_empty_title_is_422(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    empty = client.post("/tickets", json={"title": "", "actor_session_id": actor})
+
+    assert empty.status_code == 422
+    assert client.get("/tickets").json() == []
+
+    ticket_id = _create(client, actor)["id"]
+
+    blank = client.patch(f"/tickets/{ticket_id}", json={"title": "   ", "actor_session_id": actor})
+
+    assert blank.status_code == 422
+    assert _detail(client, ticket_id)["title"] == "Fix login"
+    assert _detail(client, ticket_id)["timeline"] == []
+
+
+def test_whitespace_only_comment_is_422(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    ticket_id = _create(client, actor)["id"]
+
+    response = client.post(
+        f"/tickets/{ticket_id}/comments", json={"body": "   ", "actor_session_id": actor}
+    )
+
+    assert response.status_code == 422
+    assert _detail(client, ticket_id)["timeline"] == []
+
+
+def test_status_name_over_100_chars_is_422(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    ticket_id = _create(client, actor)["id"]
+    too_long = "s" * 101
+    at_limit = "s" * 100
+
+    rejected = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": too_long, "reason": "starting", "actor_session_id": actor},
+    )
+
+    assert rejected.status_code == 422
+    assert _detail(client, ticket_id)["status"] is None
+    assert _detail(client, ticket_id)["timeline"] == []
+    assert too_long not in {s["name"] for s in client.get("/statuses").json()}
+
+    accepted = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": at_limit, "reason": "starting", "actor_session_id": actor},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == at_limit
+    assert _detail(client, ticket_id)["status"] == at_limit

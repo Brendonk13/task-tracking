@@ -130,10 +130,24 @@ def list_tickets(
 @router.post("/{int:ticket_id}/status", response=schemas.TicketDetail)
 def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
     ticket = get_object_or_404(models.Ticket, id=ticket_id)
-    actors.resolve_actor(payload.actor_session_id)
+    actor = actors.resolve_actor(payload.actor_session_id)
+    from_status = ticket.status.name if ticket.status else None
     status, _created = models.Status.objects.get_or_create(name=payload.status)
     ticket.status = status
     ticket.save()
+    if from_status is None:
+        body = f"{actor['name']} set status to {status.name}"
+    else:
+        body = f"{actor['name']} changed status from {from_status} to {status.name}"
+    models.TimelineEntry.objects.create(
+        ticket=ticket,
+        kind=models.TimelineEntry.STATUS_CHANGE,
+        actor_session_id=payload.actor_session_id,
+        body=body,
+        from_status=from_status,
+        to_status=status.name,
+        reason=payload.reason,
+    )
     return ticket
 
 

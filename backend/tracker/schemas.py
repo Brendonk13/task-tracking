@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from ninja import Schema
+from pydantic import field_validator
 
 from tracker.models import Priority, TagKind
 from tracker.services import actors
@@ -41,6 +42,24 @@ class TicketPatch(Schema):
     actor_session_id: str
 
 
+class StatusChangeIn(Schema):
+    status: str
+    reason: str
+    actor_session_id: str
+
+    @field_validator("status")
+    @classmethod
+    def strip_status(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("status", "reason")
+    @classmethod
+    def non_empty(cls, value: str) -> str:
+        if not value:
+            raise ValueError("must not be empty")
+        return value
+
+
 class Actor(Schema):
     session_id: str
     name: str
@@ -66,11 +85,16 @@ class TicketListItem(Schema):
     id: int
     title: str
     priority: Priority
+    status: str | None
     linear_url: str | None
     project: str | None
     labels: list[str]
     created_at: datetime
     updated_at: datetime
+
+    @staticmethod
+    def resolve_status(obj) -> str | None:
+        return obj.status.name if obj.status else None
 
     @staticmethod
     def resolve_project(obj) -> str | None:

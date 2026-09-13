@@ -33,6 +33,12 @@ class Tag(models.Model):
         ]
 
 
+class Status(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    is_builtin = models.BooleanField(default=False)
+    position = models.PositiveIntegerField(null=True, blank=True)
+
+
 class Ticket(models.Model):
     title = models.CharField(max_length=500)
     description = models.TextField(default="", blank=True)
@@ -40,6 +46,9 @@ class Ticket(models.Model):
         max_length=10, choices=Priority.choices, default=Priority.NONE
     )
     linear_url = models.URLField(max_length=2000, null=True, blank=True)
+    status = models.ForeignKey(
+        Status, null=True, blank=True, on_delete=models.PROTECT, related_name="tickets"
+    )
     tags = models.ManyToManyField(Tag, related_name="tickets", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -56,9 +65,3 @@ class TimelineEntry(models.Model):
     to_status = models.CharField(max_length=100, null=True, blank=True)
     reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-
-
-class Status(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    is_builtin = models.BooleanField(default=False)
-    position = models.PositiveIntegerField(null=True, blank=True)

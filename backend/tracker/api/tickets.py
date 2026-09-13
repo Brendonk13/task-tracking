@@ -127,6 +127,16 @@ def list_tickets(
     return queryset.order_by(*(f"{prefix}{key}" for key in keys))
 
 
+@router.post("/{int:ticket_id}/status", response=schemas.TicketDetail)
+def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
+    ticket = get_object_or_404(models.Ticket, id=ticket_id)
+    actors.resolve_actor(payload.actor_session_id)
+    status, _created = models.Status.objects.get_or_create(name=payload.status)
+    ticket.status = status
+    ticket.save()
+    return ticket
+
+
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)
 def get_ticket(request, ticket_id: int):
     return get_object_or_404(models.Ticket, id=ticket_id)

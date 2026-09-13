@@ -20,7 +20,7 @@ export type TicketListQuery = NonNullable<
   paths["/api/tickets"]["get"]["parameters"]["query"]
 >
 
-export function useTickets(query: TicketListQuery = {}) {
+export function useTickets(query: TicketListQuery) {
   return useQuery({
     queryKey: ["tickets", "list", query] as const,
     queryFn: async (): Promise<TicketListItem[]> => {

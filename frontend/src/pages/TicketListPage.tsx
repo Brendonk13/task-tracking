@@ -67,7 +67,7 @@ export function TicketListPage() {
         <h1 id="tickets-heading" className="text-2xl font-semibold tracking-tight">
           Tickets
         </h1>
-        <div role="toolbar" aria-label="Ticket filters" className="flex flex-wrap items-center gap-4">
+        <div role="group" aria-label="Ticket filters" className="flex flex-wrap items-center gap-4">
           <StatusFilter selected={statuses} onChange={setStatuses} />
           <div className="flex items-center gap-2">
             <Switch

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api, unwrap } from "@/api/client"
 import type { components, paths } from "@/api/schema.d.ts"
 
@@ -23,6 +23,7 @@ export type TicketListQuery = NonNullable<
 export function useTickets(query: TicketListQuery) {
   return useQuery({
     queryKey: ["tickets", "list", query] as const,
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<TicketListItem[]> => {
       return unwrap(await api.GET("/api/tickets", { params: { query } }), "Failed to load tickets")
     },

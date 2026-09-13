@@ -9,6 +9,7 @@ export const statusesQueryKey = ["statuses"] as const
 export function useStatuses() {
   return useQuery({
     queryKey: statusesQueryKey,
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<StatusItem[]> => {
       return unwrap(await api.GET("/api/statuses"), "Failed to load statuses")
     },

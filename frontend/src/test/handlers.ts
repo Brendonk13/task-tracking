@@ -167,6 +167,14 @@ export function statefulTicketDetail(initial: TicketDetail) {
     flagRequests,
     /** The detail as the "server" currently has it. */
     current: () => detail,
+    /**
+     * `GET /api/tickets/summary` for a world containing only this ticket: the count is 1 while
+     * it needs human eyes, else 0, and follows the flag mutation above.
+     */
+    summaryHandler: http.get("/api/tickets/summary", () => {
+      const body: TicketsSummary = { needs_human_eyes_count: detail.needs_human_eyes ? 1 : 0 }
+      return HttpResponse.json(body)
+    }),
   }
 }
 

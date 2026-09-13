@@ -1,12 +1,15 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { http, HttpResponse } from "msw"
 import { Route, Routes } from "react-router-dom"
+import { AppShell } from "@/components/layout/AppShell"
 import { TicketDetailPage } from "@/pages/TicketDetailPage"
 import {
   BUILT_IN_STATUSES,
   HUMAN_ACTOR,
   makeTicketDetail,
   makeTimelineEntry,
+  recordRequests,
   statefulTicketDetail,
   statusesHandler,
   ticketDetailHandler,
@@ -402,5 +405,98 @@ describe("TicketDetailPage", () => {
     renderDetail(8)
     await screen.findByRole("heading", { level: 1, name: "Write docs" })
     expect(screen.queryByRole("link", { name: /linear/i })).toBeNull()
+  })
+
+  // ---- Reviewer pins (end of F3/F4) ----
+
+  it("flagging needs human eyes from the detail page updates the sidebar badge", async () => {
+    const user = userEvent.setup()
+    const requests = recordRequests()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({ id: 7, title: "Fix login", needs_human_eyes: false, timeline: [] }),
+    )
+    server.use(...ticket.handlers, ticket.summaryHandler)
+    renderWithProviders(
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route path="tickets/:id" element={<TicketDetailPage />} />
+        </Route>
+      </Routes>,
+      { route: "/tickets/7" },
+    )
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    // Settled zero: the summary has been fetched and there is no badge.
+    await waitFor(() => expect(requests).toContain("/api/tickets/summary"))
+    const nav = screen.getByRole("navigation")
+    expect(within(nav).queryByRole("status")).toBeNull()
+
+    await user.click(screen.getByRole("switch", { name: /needs human eyes/i }))
+
+    expect(
+      await within(nav).findByRole("status", { name: /1 ticket needs human eyes/i }),
+    ).toHaveTextContent("1")
+  })
+
+  it("human can type a new status via the Other option", async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({ id: 7, title: "Fix login", status: "blocked", timeline: [] }),
+    )
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    const select = await screen.findByRole("combobox", { name: /^status$/i })
+    await user.selectOptions(select, within(select).getByRole("option", { name: /^other/i }))
+    await user.type(screen.getByRole("textbox", { name: /new status/i }), "waiting-on-vendor")
+    await user.type(screen.getByRole("textbox", { name: /reason/i }), "vendor replied")
+    await user.click(screen.getByRole("button", { name: /change status/i }))
+
+    await waitFor(() =>
+      expect(ticket.statusRequests).toEqual([
+        { status: "waiting-on-vendor", reason: "vendor replied", actor_session_id: "human" },
+      ]),
+    )
+    expect(
+      await screen.findByText("waiting-on-vendor", { selector: "[data-slot='badge']" }),
+    ).toBeInTheDocument()
+  })
+
+  it("a failed comment post shows an error and keeps the draft", async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post("/api/tickets/7/comments", () =>
+        HttpResponse.json({ detail: "unknown actor" }, { status: 400 }),
+      ),
+      ticketDetailHandler(makeTicketDetail({ id: 7, title: "Fix login", timeline: [] })),
+    )
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    await user.type(screen.getByRole("textbox", { name: /comment/i }), "Looks good")
+    await user.click(screen.getByRole("button", { name: /post comment/i }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent?.trim()).not.toBe("")
+    expect(screen.getByRole("textbox", { name: /comment/i })).toHaveValue("Looks good")
+  })
+
+  it("focus returns to the comment box after posting", async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({ id: 7, title: "Fix login", timeline: [] }),
+    )
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    await user.type(screen.getByRole("textbox", { name: /comment/i }), "Looks good")
+    await user.click(screen.getByRole("button", { name: /post comment/i }))
+
+    // Post completed and the form reset...
+    await waitFor(() => expect(ticket.commentRequests).toHaveLength(1))
+    await waitFor(() => expect(screen.getByRole("textbox", { name: /comment/i })).toHaveValue(""))
+    // ...and the keyboard user is back in the box, ready for the next comment.
+    await waitFor(() => expect(screen.getByRole("textbox", { name: /comment/i })).toHaveFocus())
   })
 })

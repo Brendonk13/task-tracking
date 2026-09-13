@@ -53,11 +53,7 @@ export function TicketListPage() {
       if (checked) params.set("needs_human_eyes", "true")
       else params.delete("needs_human_eyes")
     })
-  const setSort = (next: SortField) =>
-    updateParams((params) => {
-      params.set("sort", next)
-      params.set("order", "desc")
-    })
+  const setSort = (next: SortField) => updateParams((params) => params.set("sort", next))
 
   const query: TicketListQuery = { sort, order: "desc" }
   if (statuses.length > 0) query.status = statuses

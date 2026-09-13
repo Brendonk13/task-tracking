@@ -1,5 +1,6 @@
 from typing import List
 
+from django.db.models import F
 from ninja import Router
 
 from tracker import models, schemas
@@ -30,4 +31,6 @@ def register_session(request, session_id: str, payload: schemas.SessionIn):
 
 @router.get("", response=List[schemas.Session])
 def list_sessions(request):
-    return models.Session.objects.all()
+    return models.Session.objects.order_by(
+        F("last_message_at").desc(nulls_last=True), "-created_at"
+    )

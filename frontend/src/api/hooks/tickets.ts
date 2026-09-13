@@ -20,9 +20,11 @@ export type TicketListQuery = NonNullable<
   paths["/api/tickets"]["get"]["parameters"]["query"]
 >
 
+export const ticketsListQueryKey = ["tickets", "list"] as const
+
 export function useTickets(query: TicketListQuery) {
   return useQuery({
-    queryKey: ["tickets", "list", query] as const,
+    queryKey: [...ticketsListQueryKey, query] as const,
     placeholderData: keepPreviousData,
     queryFn: async (): Promise<TicketListItem[]> => {
       return unwrap(await api.GET("/api/tickets", { params: { query } }), "Failed to load tickets")
@@ -66,6 +68,9 @@ function useTicketMutation<TVars>(id: number, request: (vars: TVars) => Promise<
     },
     onSuccess: (detail) => {
       queryClient.setQueryData(ticketDetailQueryKey(id), detail)
+      // The list rows and the sidebar badge derive from the same ticket; refresh them.
+      void queryClient.invalidateQueries({ queryKey: ticketsListQueryKey })
+      void queryClient.invalidateQueries({ queryKey: ticketsSummaryQueryKey })
     },
   })
 }

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { ExternalLink } from "lucide-react"
 import { useParams } from "react-router-dom"
 import { useStatuses } from "@/api/hooks/statuses"
@@ -62,6 +62,7 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
 
 function CommentForm({ ticketId }: { ticketId: number }) {
   const [body, setBody] = useState("")
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const addComment = useAddComment(ticketId)
 
   return (
@@ -71,11 +72,17 @@ function CommentForm({ ticketId }: { ticketId: number }) {
         event.preventDefault()
         const trimmed = body.trim()
         if (trimmed === "") return
-        addComment.mutate(trimmed, { onSuccess: () => setBody("") })
+        addComment.mutate(trimmed, {
+          onSuccess: () => {
+            setBody("")
+            bodyRef.current?.focus()
+          },
+        })
       }}
     >
       <Label htmlFor="comment-body">Comment</Label>
       <Textarea
+        ref={bodyRef}
         id="comment-body"
         value={body}
         onChange={(event) => setBody(event.target.value)}
@@ -101,6 +108,7 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
   const [selected, setSelected] = useState(ticket.status ?? "")
   const [newStatus, setNewStatus] = useState("")
   const [reason, setReason] = useState("")
+  const reasonRef = useRef<HTMLInputElement>(null)
   const changeStatus = useChangeStatus(ticket.id)
 
   const status = selected === OTHER_STATUS ? newStatus.trim() : selected
@@ -119,6 +127,7 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
               setSelected(detail.status ?? "")
               setNewStatus("")
               setReason("")
+              reasonRef.current?.focus()
             },
           },
         )
@@ -161,6 +170,7 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
         <div className="flex min-w-56 flex-1 flex-col gap-1">
           <Label htmlFor="status-reason">Reason</Label>
           <Input
+            ref={reasonRef}
             id="status-reason"
             value={reason}
             onChange={(event) => setReason(event.target.value)}

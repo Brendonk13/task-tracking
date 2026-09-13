@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 
 from tracker.tests.conftest import register_session
 
@@ -122,3 +123,33 @@ def test_patch_ticket_updates_fields_and_records_field_change_in_timeline(client
     assert entry["from_status"] is None
     assert entry["to_status"] is None
     assert entry["reason"] is None
+
+
+def test_list_tickets_returns_all_tickets_newest_first_by_default(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    for created_at, title in [
+        ("2026-09-12T10:00:00Z", "first ticket"),
+        ("2026-09-12T10:01:00Z", "second ticket"),
+        ("2026-09-12T10:02:00Z", "third ticket"),
+    ]:
+        with freeze_time(created_at):
+            response = client.post(
+                "/tickets", json={"title": title, "actor_session_id": actor}
+            )
+        assert response.status_code == 201
+
+    listing = client.get("/tickets")
+
+    assert listing.status_code == 200
+    rows = listing.json()
+    assert isinstance(rows, list)
+    assert [row["title"] for row in rows] == [
+        "third ticket",
+        "second ticket",
+        "first ticket",
+    ]
+    for row in rows:
+        assert "id" in row
+        assert "title" in row

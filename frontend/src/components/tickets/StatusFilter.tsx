@@ -1,3 +1,4 @@
+import { useId } from "react"
 import { Filter } from "lucide-react"
 import { useStatuses } from "@/api/hooks/statuses"
 import { Button } from "@/components/ui/button"
@@ -11,6 +12,7 @@ interface StatusFilterProps {
 
 export function StatusFilter({ selected, onChange }: StatusFilterProps) {
   const { data: statuses } = useStatuses()
+  const baseId = useId()
 
   const toggle = (name: string, checked: boolean) => {
     if (checked) {
@@ -38,8 +40,8 @@ export function StatusFilter({ selected, onChange }: StatusFilterProps) {
           <legend className="px-2 pb-1 text-xs font-medium text-muted-foreground">
             Filter by status
           </legend>
-          {statuses?.map((status) => {
-            const id = `status-filter-${status.name}`
+          {statuses?.map((status, index) => {
+            const id = `${baseId}-${index}`
             return (
               <div
                 key={status.name}

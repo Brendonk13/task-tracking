@@ -1,0 +1,32 @@
+import pytest
+
+from tracker.tests.conftest import register_session
+
+pytestmark = pytest.mark.django_db
+
+
+def test_create_ticket_then_get_returns_title_description_and_default_priority_none(
+    client,
+):
+    session = register_session(client)
+
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Fix login",
+            "description": "Users get 500",
+            "actor_session_id": session["session_id"],
+        },
+    )
+
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["id"] == ticket_id
+    assert body["title"] == "Fix login"
+    assert body["description"] == "Users get 500"
+    assert body["priority"] == "none"

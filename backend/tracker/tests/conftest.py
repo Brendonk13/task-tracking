@@ -24,3 +24,14 @@ def seeded_names(monkeypatch) -> random.Random:
     rng = random.Random(NAME_RNG_SEED)
     monkeypatch.setattr(names, "rng", rng)
     return rng
+
+
+def register_session(
+    client: TestClient,
+    session_id: str = "a4c7e1b9-6f2d-4e83-b5a0-9d1c3f7e2b46",
+    directory: str = "/home/me/proj",
+) -> dict:
+    """PUT a session through the API and return the response JSON."""
+    response = client.put(f"/sessions/{session_id}", json={"directory": directory})
+    assert response.status_code == 200, response.content
+    return response.json()

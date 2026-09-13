@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List
 
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Prefetch, Value, When
 from django.shortcuts import get_object_or_404
 from ninja import Query, Router
 from ninja.responses import Status
@@ -31,9 +31,26 @@ class SortOrder(str, Enum):
     desc = "desc"
 
 
+def _tickets():
+    """Base queryset for every ticket response: no per-row status/tag queries."""
+    return models.Ticket.objects.select_related("status").prefetch_related("tags")
+
+
+def _detail(ticket_id: int) -> models.Ticket:
+    """Load one ticket as ``TicketDetail`` needs it: tags, ordered timeline, actors."""
+    ticket = get_object_or_404(
+        _tickets().prefetch_related(
+            Prefetch("timeline", queryset=models.TimelineEntry.objects.order_by("created_at", "id"))
+        ),
+        id=ticket_id,
+    )
+    actors.attach_actors(ticket.timeline.all())
+    return ticket
+
+
 def _ticket_and_actor(ticket_id: int, actor_session_id: str) -> tuple[models.Ticket, dict]:
     """Load the ticket and validate the actor, in A3 order: 404 before 400."""
-    ticket = get_object_or_404(models.Ticket, id=ticket_id)
+    ticket = get_object_or_404(_tickets(), id=ticket_id)
     return ticket, actors.require_actor(actor_session_id)
 
 
@@ -57,7 +74,7 @@ def create_ticket(request, payload: schemas.TicketCreate):
         **payload.dict(exclude={"actor_session_id", "project", "labels"})
     )
     tags.set_tags(ticket, payload.project, payload.labels)
-    return Status(201, ticket)
+    return Status(201, _detail(ticket.id))
 
 
 def _render(value) -> str:
@@ -118,7 +135,7 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
         if "project" in changed_fields or "labels" in changed_fields:
             tags.set_tags(ticket, current["project"], current["labels"])
         ticket.save()
-    return ticket
+    return _detail(ticket.id)
 
 
 @router.get("", response=List[schemas.TicketListItem])
@@ -129,7 +146,7 @@ def list_tickets(
     needs_human_eyes: bool | None = None,
     status: List[str] = Query([]),
 ):
-    queryset = models.Ticket.objects.all()
+    queryset = _tickets()
     if needs_human_eyes is not None:
         queryset = queryset.filter(needs_human_eyes=needs_human_eyes)
     if status:
@@ -153,7 +170,7 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
     ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
     from_status = ticket.status.name if ticket.status else None
     if from_status == payload.status:
-        return ticket  # B3.7 no-op: same status, nothing written
+        return _detail(ticket.id)  # B3.7 no-op: same status, nothing written
     status, _created = models.Status.objects.get_or_create(name=payload.status)
     ticket.status = status
     ticket.save()
@@ -170,7 +187,7 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
         to_status=status.name,
         reason=payload.reason,
     )
-    return ticket
+    return _detail(ticket.id)
 
 
 @router.post("/{int:ticket_id}/comments", response=schemas.TicketDetail)
@@ -178,14 +195,14 @@ def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
     ticket, _actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
     _record(ticket, models.TimelineKind.COMMENT, payload.actor_session_id, payload.body)
     ticket.save()  # A8: comments count as activity
-    return ticket
+    return _detail(ticket.id)
 
 
 @router.post("/{int:ticket_id}/needs-human-eyes", response=schemas.TicketDetail)
 def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEyesIn):
     ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
     if ticket.needs_human_eyes == payload.value:
-        return ticket  # A6 no-op: same value, nothing written
+        return _detail(ticket.id)  # A6 no-op: same value, nothing written
     ticket.needs_human_eyes = payload.value
     ticket.save()
     verb = "flagged" if payload.value else "cleared"
@@ -196,9 +213,9 @@ def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEye
         f"{actor['name']} {verb} needs human eyes",
         reason=payload.reason,
     )
-    return ticket
+    return _detail(ticket.id)
 
 
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)
 def get_ticket(request, ticket_id: int):
-    return get_object_or_404(models.Ticket, id=ticket_id)
+    return _detail(ticket_id)

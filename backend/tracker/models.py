@@ -71,3 +71,6 @@ class TimelineEntry(models.Model):
     to_status = models.CharField(max_length=100, null=True, blank=True)
     reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]

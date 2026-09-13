@@ -96,7 +96,8 @@ class TimelineEntry(Schema):
 
     @staticmethod
     def resolve_actor(obj) -> dict:
-        return actors.actor_view(obj.actor_session_id)
+        pre_resolved = getattr(obj, "actor", None)
+        return pre_resolved or actors.actor_view(obj.actor_session_id)
 
 
 class TicketListItem(Schema):
@@ -130,7 +131,8 @@ class TicketDetail(TicketListItem):
 
     @staticmethod
     def resolve_timeline(obj):
-        return obj.timeline.order_by("created_at", "id")
+        # Ordered by TimelineEntry.Meta.ordering; uses the prefetch cache when present.
+        return obj.timeline.all()
 
 
 class StatusItem(Schema):

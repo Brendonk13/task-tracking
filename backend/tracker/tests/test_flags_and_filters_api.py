@@ -107,3 +107,132 @@ def test_list_tickets_filter_needs_human_eyes_true_returns_only_flagged(client):
 
     assert everything.status_code == 200
     assert {row["id"] for row in everything.json()} == {flagged_a, unflagged, flagged_b}
+
+
+def set_status(client, actor, ticket_id, status):
+    response = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": status, "reason": f"moving to {status}", "actor_session_id": actor},
+    )
+    assert response.status_code == 200
+
+
+def test_list_tickets_filter_by_single_status(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    blocked_a = create_ticket(client, actor, "Blocked A")
+    blocked_b = create_ticket(client, actor, "Blocked B")
+    planning = create_ticket(client, actor, "Planning")
+    create_ticket(client, actor, "No status")
+    set_status(client, actor, blocked_a, "blocked")
+    set_status(client, actor, blocked_b, "blocked")
+    set_status(client, actor, planning, "planning")
+
+    only_blocked = client.get("/tickets?status=blocked")
+
+    assert only_blocked.status_code == 200
+    assert {row["id"] for row in only_blocked.json()} == {blocked_a, blocked_b}
+
+    only_planning = client.get("/tickets?status=planning")
+
+    assert only_planning.status_code == 200
+    assert {row["id"] for row in only_planning.json()} == {planning}
+
+    unknown = client.get("/tickets?status=nonexistent-status")
+
+    assert unknown.status_code == 200
+    assert unknown.json() == []
+
+
+def test_list_tickets_filter_by_multiple_statuses_is_or(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    blocked = create_ticket(client, actor, "Blocked")
+    needs_help = create_ticket(client, actor, "Needs help")
+    planning = create_ticket(client, actor, "Planning")
+    create_ticket(client, actor, "No status")
+    set_status(client, actor, blocked, "blocked")
+    set_status(client, actor, needs_help, "needs-help")
+    set_status(client, actor, planning, "planning")
+
+    either = client.get("/tickets?status=blocked&status=needs-help")
+
+    assert either.status_code == 200
+    assert {row["id"] for row in either.json()} == {blocked, needs_help}
+
+
+def flag_ticket(client, actor, ticket_id):
+    response = client.post(
+        f"/tickets/{ticket_id}/needs-human-eyes",
+        json={"value": True, "actor_session_id": actor},
+    )
+    assert response.status_code == 200
+
+
+def test_summary_returns_count_of_tickets_needing_human_eyes(client):
+    session = register_session(client)
+    actor = session["session_id"]
+
+    empty = client.get("/tickets/summary")
+
+    assert empty.status_code == 200
+    assert empty.json() == {"needs_human_eyes_count": 0}
+
+    flagged_a = create_ticket(client, actor, "Flagged A")
+    create_ticket(client, actor, "Unflagged")
+    flagged_b = create_ticket(client, actor, "Flagged B")
+    flag_ticket(client, actor, flagged_a)
+    flag_ticket(client, actor, flagged_b)
+
+    summary = client.get("/tickets/summary")
+
+    assert summary.status_code == 200
+    assert summary.json() == {"needs_human_eyes_count": 2}
+
+
+def test_list_tickets_includes_status_and_needs_human_eyes_per_row(client):
+    session = register_session(client)
+    actor = session["session_id"]
+    linear_url = "https://linear.app/avantos/issue/AVA-123/fix-login"
+
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Fix login",
+            "description": "Users get 500",
+            "project": "avantos",
+            "labels": ["infra", "ai"],
+            "linear_url": linear_url,
+            "actor_session_id": actor,
+        },
+    )
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+    set_status(client, actor, ticket_id, "blocked")
+    flag_ticket(client, actor, ticket_id)
+
+    detail = client.get(f"/tickets/{ticket_id}")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+
+    listing = client.get("/tickets")
+
+    assert listing.status_code == 200
+    rows = [row for row in listing.json() if row["id"] == ticket_id]
+    assert len(rows) == 1
+    assert rows[0] == {
+        "id": ticket_id,
+        "title": "Fix login",
+        "priority": "none",
+        "status": "blocked",
+        "needs_human_eyes": True,
+        "project": "avantos",
+        "labels": ["ai", "infra"],
+        "linear_url": linear_url,
+        "created_at": detail_body["created_at"],
+        "updated_at": detail_body["updated_at"],
+    }
+    assert "description" not in rows[0]
+    assert "timeline" not in rows[0]

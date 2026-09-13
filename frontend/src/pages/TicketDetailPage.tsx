@@ -38,25 +38,23 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
     </div>
   )
 
-  if (entry.kind === "comment") {
-    return (
-      <li data-kind={entry.kind} className="flex flex-col gap-1">
-        {meta}
-        <article className="rounded-lg border bg-card px-3 py-2 text-sm text-card-foreground shadow-xs whitespace-pre-wrap">
-          {entry.body}
-        </article>
-      </li>
-    )
-  }
   return (
     <li data-kind={entry.kind} className="flex flex-col gap-1">
       {meta}
-      <p className="text-sm text-muted-foreground">{entry.body}</p>
-      {entry.reason !== null && (
-        <p className="text-sm">
-          <span className="text-muted-foreground">Reason: </span>
-          <span className="italic">{entry.reason}</span>
-        </p>
+      {entry.kind === "comment" ? (
+        <article className="rounded-lg border bg-card px-3 py-2 text-sm text-card-foreground shadow-xs whitespace-pre-wrap">
+          {entry.body}
+        </article>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">{entry.body}</p>
+          {entry.reason !== null && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Reason: </span>
+              <span className="italic">{entry.reason}</span>
+            </p>
+          )}
+        </>
       )}
     </li>
   )

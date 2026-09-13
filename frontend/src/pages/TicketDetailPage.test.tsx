@@ -373,4 +373,34 @@ describe("TicketDetailPage", () => {
     expect(event).toHaveAttribute("data-kind", "flag_change")
     expect(event).toHaveTextContent("human flagged needs human eyes")
   })
+
+  // Linear convention: when `linear_url` is set, the header shows an anchor with visible text
+  // "Open in Linear" (accessible name matches /linear/i), href = the URL verbatim,
+  // target="_blank", rel including "noopener". When null, no such link is rendered at all.
+  it("linear url renders as an external link when present", async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Fix login",
+          linear_url: "https://linear.app/acme/issue/ENG-123",
+        }),
+      ),
+      ticketDetailHandler(makeTicketDetail({ id: 8, title: "Write docs", linear_url: null })),
+    )
+
+    const withUrl = renderDetail(7)
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+
+    const link = screen.getByRole("link", { name: /linear/i })
+    expect(link).toHaveAttribute("href", "https://linear.app/acme/issue/ENG-123")
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link.getAttribute("rel")).toMatch(/\bnoopener\b/)
+
+    withUrl.unmount()
+
+    renderDetail(8)
+    await screen.findByRole("heading", { level: 1, name: "Write docs" })
+    expect(screen.queryByRole("link", { name: /linear/i })).toBeNull()
+  })
 })

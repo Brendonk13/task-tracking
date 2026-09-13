@@ -75,3 +75,51 @@ def test_changing_status_writes_changed_from_to_entry(client):
     assert entry["from_status"] == "planning"
     assert entry["to_status"] == "implementing-plan"
     assert entry["reason"] == "plan approved"
+
+
+def test_add_comment_appears_in_timeline_with_actor_name(client):
+    session_id = "f3a9d2c7-5b1e-4a84-9c6f-8e0d4b2a7c15"
+    session = register_session(client, session_id=session_id)
+    name = session["name"]
+    comment = "Investigated: the token refresh races the logout."
+
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": session_id})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    commented = client.post(
+        f"/tickets/{ticket_id}/comments",
+        json={"body": comment, "actor_session_id": session_id},
+    )
+
+    assert commented.status_code == 200
+    assert commented.json()["id"] == ticket_id
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    timeline = fetched.json()["timeline"]
+    assert len(timeline) == 1
+    entry = timeline[0]
+    assert entry["kind"] == "comment"
+    assert entry["body"] == comment
+    assert entry["actor"]["name"] == name
+    assert entry["actor"]["session_id"] == session_id
+    assert entry["from_status"] is None
+    assert entry["to_status"] is None
+    assert entry["reason"] is None
+
+    human_commented = client.post(
+        f"/tickets/{ticket_id}/comments",
+        json={"body": "Thanks, I will look at the logout flow.", "actor_session_id": "human"},
+    )
+    assert human_commented.status_code == 200
+
+    refetched = client.get(f"/tickets/{ticket_id}")
+
+    assert refetched.status_code == 200
+    timeline = refetched.json()["timeline"]
+    assert len(timeline) == 2
+    assert timeline[1]["kind"] == "comment"
+    assert timeline[1]["body"] == "Thanks, I will look at the logout flow."
+    assert timeline[1]["actor"] == {"session_id": "human", "name": "human", "directory": None}

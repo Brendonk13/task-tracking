@@ -245,7 +245,7 @@ export function TicketDetailPage() {
         {ticket.description !== "" && (
           <p className="text-sm text-foreground/90 whitespace-pre-wrap">{ticket.description}</p>
         )}
-        <StatusForm key={ticket.status ?? ""} ticket={ticket} />
+        <StatusForm ticket={ticket} />
       </header>
 
       <section aria-labelledby="timeline-heading" className="flex flex-col gap-3">

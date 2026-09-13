@@ -5,6 +5,8 @@ import { server } from "./msw"
 type TicketsSummary = components["schemas"]["TicketsSummary"]
 type TicketListItem = components["schemas"]["TicketListItem"]
 type StatusItem = components["schemas"]["StatusItem"]
+type TicketDetail = components["schemas"]["TicketDetail"]
+type TimelineEntry = components["schemas"]["TimelineEntry"]
 
 /** The ten built-in statuses, in the canonical order `GET /api/statuses` returns them. */
 export const BUILT_IN_STATUSES: StatusItem[] = [
@@ -38,6 +40,38 @@ export function makeTicket(overrides: Partial<TicketListItem> = {}): TicketListI
     updated_at: "2026-09-12T10:00:00Z",
     ...overrides,
   }
+}
+
+let nextEntryId = 1
+
+/**
+ * Builds a `TimelineEntry` (A2: one flat schema, inapplicable fields `null`).
+ * Defaults to a comment by the session `cool-willow`; ids auto-increment per test file.
+ */
+export function makeTimelineEntry(overrides: Partial<TimelineEntry> = {}): TimelineEntry {
+  const id = overrides.id ?? nextEntryId++
+  return {
+    id,
+    kind: "comment",
+    actor: { session_id: "sess-1", name: "cool-willow", directory: "/home/dev/app" },
+    body: `Comment ${id}`,
+    created_at: "2026-09-12T10:00:00Z",
+    from_status: null,
+    to_status: null,
+    reason: null,
+    ...overrides,
+  }
+}
+
+/** Builds a `TicketDetail` on top of `makeTicket` defaults, with an empty description and timeline. */
+export function makeTicketDetail(overrides: Partial<TicketDetail> = {}): TicketDetail {
+  const { description = "", timeline = [], ...listOverrides } = overrides
+  return { ...makeTicket(listOverrides), description, timeline }
+}
+
+/** MSW handler for `GET /api/tickets/:id` returning the given detail for its own id. */
+export function ticketDetailHandler(detail: TicketDetail) {
+  return http.get(`/api/tickets/${detail.id}`, () => HttpResponse.json(detail))
 }
 
 /** MSW handler for `GET /api/tickets/summary` returning the given badge count. */

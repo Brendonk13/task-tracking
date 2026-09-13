@@ -30,3 +30,30 @@ def test_create_ticket_then_get_returns_title_description_and_default_priority_n
     assert body["title"] == "Fix login"
     assert body["description"] == "Users get 500"
     assert body["priority"] == "none"
+
+
+def test_create_ticket_with_unknown_actor_is_rejected_with_400(client):
+    response = client.post(
+        "/tickets",
+        json={
+            "title": "Fix login",
+            "description": "Users get 500",
+            "actor_session_id": "not-registered",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "unknown actor"}
+
+
+def test_human_is_an_accepted_actor(client):
+    response = client.post(
+        "/tickets",
+        json={
+            "title": "Fix login",
+            "description": "Users get 500",
+            "actor_session_id": "human",
+        },
+    )
+
+    assert response.status_code == 201

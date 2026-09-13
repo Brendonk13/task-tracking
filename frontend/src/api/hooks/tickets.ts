@@ -58,17 +58,28 @@ export function useTicket(id: number) {
 }
 
 export type CommentIn = components["schemas"]["CommentIn"]
+export type StatusChangeIn = components["schemas"]["StatusChangeIn"]
+export type NeedsHumanEyesIn = components["schemas"]["NeedsHumanEyesIn"]
 
-export function useAddComment(id: number) {
+const HUMAN = "human"
+
+type ApiResult = { data?: TicketDetail; error?: unknown }
+
+/**
+ * A human-actor mutation on one ticket. Every mutating endpoint returns the updated
+ * `TicketDetail` (A3), which replaces the cached detail so the page re-renders at once.
+ */
+function useTicketMutation<TVars>(
+  id: number,
+  request: (vars: TVars) => Promise<ApiResult>,
+  failureMessage: string,
+) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (body: string): Promise<TicketDetail> => {
-      const { data, error } = await api.POST("/api/tickets/{ticket_id}/comments", {
-        params: { path: { ticket_id: id } },
-        body: { body, actor_session_id: "human" } satisfies CommentIn,
-      })
+    mutationFn: async (vars: TVars): Promise<TicketDetail> => {
+      const { data, error } = await request(vars)
       if (error !== undefined || data === undefined) {
-        throw new Error("Failed to post comment")
+        throw new Error(failureMessage)
       }
       return data
     },
@@ -76,4 +87,40 @@ export function useAddComment(id: number) {
       queryClient.setQueryData(ticketDetailQueryKey(id), detail)
     },
   })
+}
+
+export function useAddComment(id: number) {
+  return useTicketMutation(
+    id,
+    (body: string) =>
+      api.POST("/api/tickets/{ticket_id}/comments", {
+        params: { path: { ticket_id: id } },
+        body: { body, actor_session_id: HUMAN } satisfies CommentIn,
+      }),
+    "Failed to post comment",
+  )
+}
+
+export function useChangeStatus(id: number) {
+  return useTicketMutation(
+    id,
+    (vars: { status: string; reason: string }) =>
+      api.POST("/api/tickets/{ticket_id}/status", {
+        params: { path: { ticket_id: id } },
+        body: { ...vars, actor_session_id: HUMAN } satisfies StatusChangeIn,
+      }),
+    "Failed to change status",
+  )
+}
+
+export function useSetNeedsHumanEyes(id: number) {
+  return useTicketMutation(
+    id,
+    (value: boolean) =>
+      api.POST("/api/tickets/{ticket_id}/needs-human-eyes", {
+        params: { path: { ticket_id: id } },
+        body: { value, actor_session_id: HUMAN } satisfies NeedsHumanEyesIn,
+      }),
+    "Failed to update needs human eyes",
+  )
 }

@@ -4,9 +4,19 @@ import { PriorityBadge, StatusChip } from "@/components/tickets/TicketBadges"
 import { Badge } from "@/components/ui/badge"
 
 function TimelineItem({ entry }: { entry: TimelineEntry }) {
+  const meta = (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span data-slot="timeline-actor" className="font-medium text-foreground">
+        {entry.actor.name}
+      </span>
+      <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+    </div>
+  )
+
   if (entry.kind === "comment") {
     return (
       <li data-kind={entry.kind} className="flex flex-col gap-1">
+        {meta}
         <article className="rounded-lg border bg-card px-3 py-2 text-sm text-card-foreground shadow-xs whitespace-pre-wrap">
           {entry.body}
         </article>
@@ -14,8 +24,15 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
     )
   }
   return (
-    <li data-kind={entry.kind} className="text-sm text-muted-foreground">
-      {entry.body}
+    <li data-kind={entry.kind} className="flex flex-col gap-1">
+      {meta}
+      <p className="text-sm text-muted-foreground">{entry.body}</p>
+      {entry.reason !== null && (
+        <p className="text-sm">
+          <span className="text-muted-foreground">Reason: </span>
+          <span className="italic">{entry.reason}</span>
+        </p>
+      )}
     </li>
   )
 }

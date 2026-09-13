@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { SessionsPage } from "@/pages/SessionsPage"
 import { server } from "@/test/msw"
 import { renderWithProviders } from "@/test/render"
@@ -16,6 +17,11 @@ import { makeSession, sessionsHandler } from "@/test/sessionHandlers"
 //
 // Ordering convention: rows appear in exactly the order GET /api/sessions returned them;
 // the server sorts by newest activity (A10) and the page never re-sorts.
+//
+// Resume convention (fixed by F3.5, see components/sessions/ResumeSessionButton): each row has
+// a <button aria-label="Resume session <name>"> that writes
+// `cd <directory> && claude --resume <session_id>` to the clipboard. userEvent.setup()
+// installs a navigator.clipboard stub that the test reads back.
 
 // Frozen "now" for deterministic relative times. `vi.setSystemTime` only mocks `Date`
 // (no fake timers), so userEvent/waitFor keep working.
@@ -104,5 +110,36 @@ describe("SessionsPage", () => {
       ["misty-fox", "amber-lynx", "zesty-crow"].find((name) => within(row).queryByText(name)),
     )
     expect(namesInOrder).toEqual(["misty-fox", "amber-lynx", "zesty-crow"])
+  })
+
+  it("resume button copies the resume command for that session", async () => {
+    const user = userEvent.setup()
+    server.use(
+      sessionsHandler([
+        makeSession({
+          session_id: "sess-1",
+          name: "cool-willow",
+          directory: "/home/dev/app",
+          last_message: "Fix the login redirect",
+          last_message_at: "2026-09-12T10:00:00Z",
+        }),
+        makeSession({
+          session_id: "sess-2",
+          name: "quiet-otter",
+          directory: "/home/dev/docs",
+          last_message: "Draft the README",
+          last_message_at: "2026-09-12T09:00:00Z",
+        }),
+      ]),
+    )
+    renderWithProviders(<SessionsPage />)
+
+    await screen.findByText("quiet-otter")
+
+    // The button lives inside its own row, so the command is built from that row's session.
+    const otterRow = screen.getByRole("row", { name: /quiet-otter/i })
+    await user.click(within(otterRow).getByRole("button", { name: /resume session quiet-otter/i }))
+
+    expect(await navigator.clipboard.readText()).toBe("cd /home/dev/docs && claude --resume sess-2")
   })
 })

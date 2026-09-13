@@ -60,20 +60,14 @@ class TimelineEntry(Schema):
         return actors.actor_view(obj.actor_session_id)
 
 
-class TicketDetail(Schema):
+class TicketListItem(Schema):
     id: int
     title: str
-    description: str
     priority: Priority
     project: str | None
     labels: list[str]
     created_at: datetime
     updated_at: datetime
-    timeline: list[TimelineEntry]
-
-    @staticmethod
-    def resolve_timeline(obj):
-        return obj.timeline.order_by("created_at", "id")
 
     @staticmethod
     def resolve_project(obj) -> str | None:
@@ -83,3 +77,12 @@ class TicketDetail(Schema):
     @staticmethod
     def resolve_labels(obj) -> list[str]:
         return sorted(obj.tags.filter(kind=TagKind.LABEL).values_list("name", flat=True))
+
+
+class TicketDetail(TicketListItem):
+    description: str
+    timeline: list[TimelineEntry]
+
+    @staticmethod
+    def resolve_timeline(obj):
+        return obj.timeline.order_by("created_at", "id")

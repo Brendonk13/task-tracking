@@ -1,3 +1,5 @@
+from typing import List
+
 from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.responses import Status
@@ -80,6 +82,11 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
             _set_tags(ticket, current["project"], current["labels"])
         ticket.save()
     return ticket
+
+
+@router.get("", response=List[schemas.TicketListItem])
+def list_tickets(request):
+    return models.Ticket.objects.order_by("-created_at", "-id")
 
 
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)

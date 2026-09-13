@@ -37,7 +37,6 @@ export function Sidebar() {
 
   return (
     <aside
-      data-collapsed={collapsed}
       className={cn(
         "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width]",
         collapsed ? "w-14" : "w-56",
@@ -57,7 +56,6 @@ export function Sidebar() {
           variant="ghost"
           size="icon-sm"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-pressed={collapsed}
           onClick={() => setCollapsed((c) => !c)}
         >
           <ToggleIcon aria-hidden="true" />

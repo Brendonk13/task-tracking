@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { api } from "@/api/client"
+import { api, unwrap } from "@/api/client"
 import type { components } from "@/api/schema.d.ts"
 
 export type Session = components["schemas"]["Session"]
@@ -10,11 +10,7 @@ export function useSessions() {
   return useQuery({
     queryKey: sessionsQueryKey,
     queryFn: async (): Promise<Session[]> => {
-      const { data, error } = await api.GET("/api/sessions")
-      if (error !== undefined || data === undefined) {
-        throw new Error("Failed to load sessions")
-      }
-      return data
+      return unwrap(await api.GET("/api/sessions"), "Failed to load sessions")
     },
   })
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/api/client"
+import { api, unwrap } from "@/api/client"
 import type { components, paths } from "@/api/schema.d.ts"
 
 export type TicketsSummary = components["schemas"]["TicketsSummary"]
@@ -10,11 +10,7 @@ export function useTicketsSummary() {
   return useQuery({
     queryKey: ticketsSummaryQueryKey,
     queryFn: async (): Promise<TicketsSummary> => {
-      const { data, error } = await api.GET("/api/tickets/summary")
-      if (error !== undefined || data === undefined) {
-        throw new Error("Failed to load tickets summary")
-      }
-      return data
+      return unwrap(await api.GET("/api/tickets/summary"), "Failed to load tickets summary")
     },
   })
 }
@@ -28,11 +24,7 @@ export function useTickets(query: TicketListQuery = {}) {
   return useQuery({
     queryKey: ["tickets", "list", query] as const,
     queryFn: async (): Promise<TicketListItem[]> => {
-      const { data, error } = await api.GET("/api/tickets", { params: { query } })
-      if (error !== undefined || data === undefined) {
-        throw new Error("Failed to load tickets")
-      }
-      return data
+      return unwrap(await api.GET("/api/tickets", { params: { query } }), "Failed to load tickets")
     },
   })
 }
@@ -46,13 +38,9 @@ export function useTicket(id: number) {
   return useQuery({
     queryKey: ticketDetailQueryKey(id),
     queryFn: async (): Promise<TicketDetail> => {
-      const { data, error } = await api.GET("/api/tickets/{ticket_id}", {
+      return unwrap(await api.GET("/api/tickets/{ticket_id}", {
         params: { path: { ticket_id: id } },
-      })
-      if (error !== undefined || data === undefined) {
-        throw new Error("Failed to load ticket")
-      }
-      return data
+      }), "Failed to load ticket")
     },
   })
 }
@@ -77,11 +65,7 @@ function useTicketMutation<TVars>(
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (vars: TVars): Promise<TicketDetail> => {
-      const { data, error } = await request(vars)
-      if (error !== undefined || data === undefined) {
-        throw new Error(failureMessage)
-      }
-      return data
+      return unwrap(await request(vars), failureMessage)
     },
     onSuccess: (detail) => {
       queryClient.setQueryData(ticketDetailQueryKey(id), detail)

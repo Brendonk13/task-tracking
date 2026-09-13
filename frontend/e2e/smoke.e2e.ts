@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { expect, test, type APIRequestContext } from "@playwright/test"
+import type { components } from "../src/api/schema.d.ts"
 
 /**
  * PLAN.md task 8.1 - the one critical-path flow, against the real backend.
@@ -10,20 +11,9 @@ import { expect, test, type APIRequestContext } from "@playwright/test"
 
 const API = "/api"
 
-interface Session {
-  session_id: string
-  name: string
-}
-
-interface TicketDetail {
-  id: number
-  status: string | null
-  needs_human_eyes: boolean
-}
-
-interface TicketsSummary {
-  needs_human_eyes_count: number
-}
+type Session = components["schemas"]["Session"]
+type TicketDetail = components["schemas"]["TicketDetail"]
+type TicketsSummary = components["schemas"]["TicketsSummary"]
 
 async function json<T>(response: Awaited<ReturnType<APIRequestContext["get"]>>): Promise<T> {
   expect(response.ok(), `${response.url()} -> ${response.status()} ${await response.text()}`).toBe(true)

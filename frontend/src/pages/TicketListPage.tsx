@@ -1,7 +1,10 @@
 import { useState } from "react"
-import { useTickets, type TicketListItem } from "@/api/hooks/tickets"
+import { TriangleAlert } from "lucide-react"
+import { useTickets, type TicketListItem, type TicketListQuery } from "@/api/hooks/tickets"
 import { StatusFilter } from "@/components/tickets/StatusFilter"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -39,11 +42,24 @@ function StatusChip({ status }: { status: string | null }) {
   return <Badge variant="secondary">{status}</Badge>
 }
 
+type SortField = NonNullable<TicketListQuery["sort"]>
+
+const sortOptions: { value: SortField; label: string }[] = [
+  { value: "created_at", label: "Newest" },
+  { value: "updated_at", label: "Recently updated" },
+  { value: "priority", label: "Priority" },
+]
+
 export function TicketListPage() {
   const [statuses, setStatuses] = useState<string[]>([])
-  const { data: tickets, isPending, isError } = useTickets(
-    statuses.length > 0 ? { status: statuses } : {},
-  )
+  const [needsHumanEyes, setNeedsHumanEyes] = useState(false)
+  const [sort, setSort] = useState<SortField>("created_at")
+
+  const query: TicketListQuery = { sort, order: "desc" }
+  if (statuses.length > 0) query.status = statuses
+  if (needsHumanEyes) query.needs_human_eyes = true
+
+  const { data: tickets, isPending, isError } = useTickets(query)
 
   return (
     <section aria-labelledby="tickets-heading" className="flex flex-col gap-4">
@@ -51,7 +67,29 @@ export function TicketListPage() {
         <h1 id="tickets-heading" className="text-2xl font-semibold tracking-tight">
           Tickets
         </h1>
-        <StatusFilter selected={statuses} onChange={setStatuses} />
+        <div role="toolbar" aria-label="Ticket filters" className="flex flex-wrap items-center gap-4">
+          <StatusFilter selected={statuses} onChange={setStatuses} />
+          <div className="flex items-center gap-2">
+            <Switch
+              id="needs-human-eyes-filter"
+              checked={needsHumanEyes}
+              onCheckedChange={setNeedsHumanEyes}
+            />
+            <Label htmlFor="needs-human-eyes-filter">Needs human eyes</Label>
+          </div>
+          <select
+            aria-label="Sort by"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SortField)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {isPending && <p className="text-sm text-muted-foreground">Loading tickets…</p>}
@@ -65,6 +103,9 @@ export function TicketListPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8">
+                <span className="sr-only">Flags</span>
+              </TableHead>
               <TableHead>Title</TableHead>
               <TableHead className="w-28">Priority</TableHead>
               <TableHead className="w-44">Status</TableHead>
@@ -72,7 +113,23 @@ export function TicketListPage() {
           </TableHeader>
           <TableBody>
             {tickets.map((ticket) => (
-              <TableRow key={ticket.id}>
+              <TableRow
+                key={ticket.id}
+                data-needs-human-eyes={String(ticket.needs_human_eyes)}
+                className={cn(
+                  ticket.needs_human_eyes &&
+                    "border-l-2 border-l-destructive bg-destructive/5 hover:bg-destructive/10",
+                )}
+              >
+                <TableCell>
+                  {ticket.needs_human_eyes && (
+                    <TriangleAlert
+                      aria-label="Needs human eyes"
+                      role="img"
+                      className="size-4 text-destructive"
+                    />
+                  )}
+                </TableCell>
                 <TableCell className="font-medium">{ticket.title}</TableCell>
                 <TableCell>
                   <PriorityBadge priority={ticket.priority} />

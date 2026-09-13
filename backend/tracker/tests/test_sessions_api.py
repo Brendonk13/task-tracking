@@ -29,3 +29,39 @@ def test_register_session_returns_generated_name_and_stored_fields(client):
     assert body["name"] != ""
     assert NAME_PATTERN.match(body["name"]), body["name"]
     assert "created_at" in body
+
+
+def test_register_same_session_twice_keeps_name_and_updates_message(client):
+    session_id = "8a1d4e0b-2c6f-4b93-a7e5-0d3f9b2c6e71"
+    directory = "/home/me/proj"
+
+    first = client.put(
+        f"/sessions/{session_id}",
+        json={
+            "directory": directory,
+            "last_message": "please fix the tests",
+            "last_message_at": "2026-09-12T10:00:00Z",
+        },
+    )
+    second = client.put(
+        f"/sessions/{session_id}",
+        json={
+            "directory": directory,
+            "last_message": "now run the linter",
+            "last_message_at": "2026-09-12T10:05:00Z",
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_name = first.json()["name"]
+    assert second.json()["name"] == first_name
+    assert second.json()["last_message"] == "now run the linter"
+
+    listing = client.get("/sessions")
+
+    assert listing.status_code == 200
+    sessions = listing.json()
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == session_id
+    assert sessions[0]["last_message"] == "now run the linter"

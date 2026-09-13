@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from ninja import Schema
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 
 from tracker.models import Priority, TimelineKind
 from tracker.services import actors, tags
@@ -32,7 +32,13 @@ class TicketCreate(Schema):
     actor_session_id: str
 
 
+PATCH_NON_NULLABLE = ("title", "description", "priority", "labels")
+
+
 class TicketPatch(Schema):
+    """A4: per-key replace; omitted keys are untouched. Only ``project`` and
+    ``linear_url`` may be cleared with an explicit ``null``."""
+
     title: str | None = None
     description: str | None = None
     priority: Priority | None = None
@@ -40,6 +46,18 @@ class TicketPatch(Schema):
     project: str | None = None
     labels: list[str] | None = None
     actor_session_id: str
+
+    @model_validator(mode="after")
+    def reject_null_on_non_nullable(self):
+        # ninja wraps the request body in a DjangoGetter before "before"-mode
+        # validators run, so we check explicitly-sent keys via model_fields_set.
+        nulled = [
+            k for k in PATCH_NON_NULLABLE
+            if k in self.model_fields_set and getattr(self, k) is None
+        ]
+        if nulled:
+            raise ValueError(f"{', '.join(nulled)}: null is not allowed")
+        return self
 
 
 class StatusChangeIn(Schema):

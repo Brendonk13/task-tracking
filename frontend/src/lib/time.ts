@@ -16,6 +16,7 @@ const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" })
  */
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const diff = new Date(iso).getTime() - now
+  if (Number.isNaN(diff)) return iso
   const magnitude = Math.abs(diff)
   const match = UNITS.find(({ ms }) => magnitude >= ms) ?? UNITS[UNITS.length - 1]!
   return formatter.format(Math.trunc(diff / match.ms), match.unit)

@@ -101,7 +101,13 @@ export function TicketListPage() {
         </p>
       )}
 
-      {tickets && (
+      {tickets && tickets.length === 0 && (
+        <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+          No tickets match these filters.
+        </p>
+      )}
+
+      {tickets && tickets.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
@@ -117,7 +123,6 @@ export function TicketListPage() {
             {tickets.map((ticket) => (
               <TableRow
                 key={ticket.id}
-                data-needs-human-eyes={String(ticket.needs_human_eyes)}
                 onClick={() => navigate(`/tickets/${ticket.id}`)}
                 className={cn(
                   "cursor-pointer",

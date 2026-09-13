@@ -60,13 +60,19 @@ export function ticketsHandler(rows: TicketListItem[] | ((url: URL) => TicketLis
 }
 
 /**
- * Resolver for `ticketsHandler` that mimics the backend's status filter: repeated `status=`
- * params are OR-ed; no `status` param returns everything.
+ * Resolver for `ticketsHandler` that mimics the backend's list filters:
+ * repeated `status=` params are OR-ed (none → no status filter), and
+ * `needs_human_eyes=true|false` keeps only matching rows. Sorting is not mimicked.
  */
-export function filterByStatus(rows: TicketListItem[]) {
+export function filterTickets(rows: TicketListItem[]) {
   return (url: URL) => {
-    const wanted = url.searchParams.getAll("status")
-    return wanted.length === 0 ? rows : rows.filter((t) => t.status !== null && wanted.includes(t.status))
+    const statuses = url.searchParams.getAll("status")
+    const flag = url.searchParams.get("needs_human_eyes")
+    return rows.filter((t) => {
+      if (statuses.length > 0 && (t.status === null || !statuses.includes(t.status))) return false
+      if (flag !== null && t.needs_human_eyes !== (flag === "true")) return false
+      return true
+    })
   }
 }
 

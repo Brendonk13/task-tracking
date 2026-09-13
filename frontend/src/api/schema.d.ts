@@ -245,9 +245,9 @@ export interface components {
              * Description
              * @default
              */
-            description: string;
+            description?: string;
             /** @default none */
-            priority: components["schemas"]["Priority"];
+            priority?: components["schemas"]["Priority"];
             /** Linear Url */
             linear_url?: string | null;
             /** Project */
@@ -256,7 +256,7 @@ export interface components {
              * Labels
              * @default []
              */
-            labels: string[];
+            labels?: string[];
             /** Actor Session Id */
             actor_session_id: string;
         };

@@ -10,7 +10,7 @@
     "lint": "oxlint",
     "test": "vitest",
     "typecheck": "tsc -b --noEmit",
-    "gen:api": "openapi-typescript openapi.json -o src/api/schema.d.ts",
+    "gen:api": "openapi-typescript openapi.json -o src/api/schema.d.ts --default-non-nullable=false",
     "e2e": "playwright test"
   },
   "dependencies": {

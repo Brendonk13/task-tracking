@@ -60,6 +60,18 @@ class StatusChangeIn(Schema):
         return value
 
 
+class CommentIn(Schema):
+    body: str
+    actor_session_id: str
+
+    @field_validator("body")
+    @classmethod
+    def non_empty(cls, value: str) -> str:
+        if not value:
+            raise ValueError("must not be empty")
+        return value
+
+
 class Actor(Schema):
     session_id: str
     name: str

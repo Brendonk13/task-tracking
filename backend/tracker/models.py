@@ -57,6 +57,7 @@ class Ticket(models.Model):
 class TimelineEntry(models.Model):
     FIELD_CHANGE = "field_change"
     STATUS_CHANGE = "status_change"
+    COMMENT = "comment"
 
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="timeline")
     kind = models.CharField(max_length=20)

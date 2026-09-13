@@ -153,6 +153,20 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
     return ticket
 
 
+@router.post("/{int:ticket_id}/comments", response=schemas.TicketDetail)
+def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
+    ticket = get_object_or_404(models.Ticket, id=ticket_id)
+    actors.resolve_actor(payload.actor_session_id)
+    models.TimelineEntry.objects.create(
+        ticket=ticket,
+        kind=models.TimelineEntry.COMMENT,
+        actor_session_id=payload.actor_session_id,
+        body=payload.body,
+    )
+    ticket.save()  # A8: comments count as activity
+    return ticket
+
+
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)
 def get_ticket(request, ticket_id: int):
     return get_object_or_404(models.Ticket, id=ticket_id)

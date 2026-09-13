@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ninja import Schema
 from pydantic import field_validator, model_validator
@@ -11,6 +11,14 @@ class SessionIn(Schema):
     directory: str
     last_message: str | None = None
     last_message_at: datetime | None = None
+
+    @field_validator("last_message_at")
+    @classmethod
+    def naive_is_utc(cls, value: datetime | None) -> datetime | None:
+        # A10: naive timestamps are treated as UTC.
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 class Session(Schema):

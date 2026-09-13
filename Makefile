@@ -1,4 +1,8 @@
-.PHONY: dev dev-backend dev-frontend test test-backend test-frontend gen-api check-contract e2e
+.PHONY: install dev dev-backend dev-frontend test test-backend test-frontend gen-api check-contract e2e
+
+install:
+	cd backend && uv sync
+	cd frontend && pnpm install --frozen-lockfile
 
 dev:
 	$(MAKE) -j2 dev-backend dev-frontend

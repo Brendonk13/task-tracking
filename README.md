@@ -16,6 +16,7 @@ Prerequisites:
 
 ```bash
 git clone <this repo> && cd task-tracking
+make install   # uv sync + pnpm install --frozen-lockfile
 make dev
 ```
 
@@ -110,7 +111,8 @@ were run against a fresh database; ids, names, and timestamps will differ for yo
 #### `PUT /api/sessions/{session_id}`
 
 Register or update a session. Body: `directory` (required), `last_message`,
-`last_message_at` (both optional, nullable). Returns `200` with the `Session`.
+`last_message_at` (both optional, nullable). Returns `200` with the `Session`. The
+path id `human` is reserved for the UI actor and is rejected with `422`.
 
 ```bash
 curl -s -X PUT http://localhost:8000/api/sessions/0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f \
@@ -129,7 +131,8 @@ curl -s -X PUT http://localhost:8000/api/sessions/0f2c7e1a-3b4d-4c5e-9f60-7a8b9c
 }
 ```
 
-Calling it again with only `last_message` keeps `name` and `last_message_at`:
+Calling it again with `directory` and a new `last_message` keeps `name` and
+`last_message_at`:
 
 ```bash
 curl -s -X PUT http://localhost:8000/api/sessions/0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f \
@@ -228,7 +231,9 @@ always de-duplicated and sorted. The `timeline` is ordered oldest first.
 Create a ticket. Body: `title` (required), `description` (default `""`), `priority`,
 `linear_url`, `project`, `labels`, `actor_session_id` (required). Returns `201` with
 `TicketDetail`. Status and the needs-human-eyes flag cannot be set here; use the
-endpoints below.
+endpoints below (`status` and `needs_human_eyes` keys in this body are silently
+ignored). `title` is stripped and must be non-empty; blank `linear_url`/`project`
+become `null`; `labels` are stripped, de-duplicated, and sorted with blanks dropped.
 
 ```bash
 curl -s -X POST http://localhost:8000/api/tickets -H 'Content-Type: application/json' \
@@ -385,6 +390,8 @@ HTTP/1.1 404 Not Found
 {"detail": "Not Found: No Ticket matches the given query."}
 ```
 
+(That is the `DEBUG=True` body; with `DEBUG=False` it is `{"detail": "Not Found"}`.)
+
 #### `PATCH /api/tickets/{id}`
 
 Edit fields. Body: any of `title`, `description`, `priority`, `linear_url`, `project`,
@@ -464,8 +471,8 @@ HTTP/1.1 422 Unprocessable Entity
 
 #### `POST /api/tickets/{id}/comments`
 
-Add a comment. Body: `body` (required, non-empty), `actor_session_id` (required). The
-comment body is stored verbatim.
+Add a comment. Body: `body` (required, non-empty after stripping surrounding
+whitespace), `actor_session_id` (required). The body is otherwise stored verbatim.
 
 ```bash
 curl -s -X POST http://localhost:8000/api/tickets/1/comments -H 'Content-Type: application/json' \
@@ -530,8 +537,8 @@ Clearing it from the UI (`actor_session_id: "human"`, `value: false`) appends
 
 | Code | When | Body |
 |---|---|---|
-| `422` | Body fails validation (missing field, empty `reason`/`body`/`status`, `null` on a non-nullable PATCH field, bad `priority`, bad `sort`/`order`). | `{"detail": [ ...pydantic errors... ]}` (a list) |
-| `404` | Ticket id does not exist. | `{"detail": "Not Found: No Ticket matches the given query."}` |
+| `422` | Body fails validation (missing field; empty or whitespace-only `title`/`reason`/`body`/`status`; `status` over 100 chars; `null` on a non-nullable PATCH field; bad `priority`, `sort`, or `order`). Also `PUT /api/sessions/human` (reserved id). | `{"detail": [ ...pydantic errors... ]}` (a list) |
+| `404` | Ticket id does not exist. | `{"detail": "Not Found: No Ticket matches the given query."}` (`DEBUG=True` form) |
 | `400` | `actor_session_id` is not a registered session and not `human`. | `{"detail": "unknown actor"}` |
 
 The checks run in that order, so a bad body on a missing ticket is `422`, and an unknown
@@ -541,10 +548,10 @@ actor on a missing ticket is `404`.
 
 ```
 task-tracking/
-  Makefile                      # dev, test, gen-api, check-contract, e2e
+  Makefile                      # install, dev, test, gen-api, check-contract, e2e
   PLAN.md                       # the TDD build plan
   docs/ARCHITECT_MEMO.md        # binding amendments A1-A16 to the plan
-  .github/workflows/ci.yml      # backend, frontend, contract jobs
+  .github/workflows/ci.yml      # backend, frontend, contract, e2e jobs
   backend/                      # Django 6 + django-ninja + SQLite, managed by uv
     manage.py
     config/settings.py, urls.py # api mounted at /api

@@ -57,3 +57,29 @@ def test_human_is_an_accepted_actor(client):
     )
 
     assert response.status_code == 201
+
+
+def test_create_ticket_with_project_and_labels_returns_them_as_tags(client):
+    session = register_session(client)
+
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Fix login",
+            "project": "avantos",
+            "labels": ["infra", "ai"],
+            "actor_session_id": session["session_id"],
+        },
+    )
+
+    assert created.status_code == 201
+    created_body = created.json()
+    assert created_body["project"] == "avantos"
+    assert created_body["labels"] == ["ai", "infra"]
+
+    fetched = client.get(f"/tickets/{created_body['id']}")
+
+    assert fetched.status_code == 200
+    fetched_body = fetched.json()
+    assert fetched_body["project"] == "avantos"
+    assert fetched_body["labels"] == ["ai", "infra"]

@@ -35,3 +35,43 @@ def test_first_status_writes_timeline_entry_set_status_with_actor_name_and_reaso
     assert entry["from_status"] is None
     assert entry["actor"]["name"] == name
     assert entry["actor"]["session_id"] == session_id
+
+
+def test_changing_status_writes_changed_from_to_entry(client):
+    session_id = "e1f4c8b2-7a9d-4f61-b3e0-5c2d8a7f9b06"
+    session = register_session(client, session_id=session_id)
+    name = session["name"]
+
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": session_id})
+    assert created.status_code == 201
+    ticket_id = created.json()["id"]
+
+    first = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={"status": "planning", "reason": "starting", "actor_session_id": session_id},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        f"/tickets/{ticket_id}/status",
+        json={
+            "status": "implementing-plan",
+            "reason": "plan approved",
+            "actor_session_id": session_id,
+        },
+    )
+
+    assert second.status_code == 200
+    assert second.json()["status"] == "implementing-plan"
+
+    fetched = client.get(f"/tickets/{ticket_id}")
+
+    assert fetched.status_code == 200
+    timeline = fetched.json()["timeline"]
+    assert len(timeline) == 2
+    entry = timeline[-1]
+    assert entry["kind"] == "status_change"
+    assert entry["body"] == f"{name} changed status from planning to implementing-plan"
+    assert entry["from_status"] == "planning"
+    assert entry["to_status"] == "implementing-plan"
+    assert entry["reason"] == "plan approved"

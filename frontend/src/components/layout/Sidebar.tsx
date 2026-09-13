@@ -5,10 +5,18 @@ import { useTicketsSummary } from "@/api/hooks/tickets"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-const navItems = [
-  { to: "/", label: "Tickets", icon: Ticket, badge: "needsHumanEyes" },
+interface NavItem {
+  to: string
+  label: string
+  icon: typeof Ticket
+  /** Show the needs-human-eyes count on this item. */
+  badge?: true
+}
+
+const navItems: NavItem[] = [
+  { to: "/", label: "Tickets", icon: Ticket, badge: true },
   { to: "/sessions", label: "Sessions", icon: SquareTerminal },
-] as const
+]
 
 function NeedsHumanEyesBadge({ count, collapsed }: { count: number; collapsed: boolean }) {
   if (count <= 0) return null
@@ -62,7 +70,7 @@ export function Sidebar() {
         </Button>
       </div>
       <nav aria-label="Main" className="flex flex-col gap-1 px-2">
-        {navItems.map(({ to, label, icon: Icon, ...item }) => (
+        {navItems.map(({ to, label, icon: Icon, badge }) => (
           <NavLink
             key={to}
             to={to}
@@ -81,12 +89,10 @@ export function Sidebar() {
           >
             <span className="relative inline-flex shrink-0">
               <Icon aria-hidden="true" className="size-4" />
-              {collapsed && "badge" in item && (
-                <NeedsHumanEyesBadge count={needsHumanEyes} collapsed />
-              )}
+              {badge && collapsed && <NeedsHumanEyesBadge count={needsHumanEyes} collapsed />}
             </span>
             {!collapsed && <span>{label}</span>}
-            {!collapsed && "badge" in item && (
+            {badge && !collapsed && (
               <NeedsHumanEyesBadge count={needsHumanEyes} collapsed={false} />
             )}
           </NavLink>

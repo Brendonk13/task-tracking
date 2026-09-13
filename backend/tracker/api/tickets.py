@@ -3,7 +3,7 @@ from typing import List
 
 from django.db.models import Case, IntegerField, Value, When
 from django.shortcuts import get_object_or_404
-from ninja import Router
+from ninja import Query, Router
 from ninja.responses import Status
 
 from tracker import models, schemas
@@ -68,6 +68,15 @@ def _field_change_body(actor_name: str, field: str, old, new) -> str:
     return f"{actor_name} changed {field} from {_render(old)} to {_render(new)}"
 
 
+@router.get("/summary", response=schemas.TicketsSummary)
+def tickets_summary(request):
+    return {
+        "needs_human_eyes_count": models.Ticket.objects.filter(
+            needs_human_eyes=True
+        ).count()
+    }
+
+
 @router.patch("/{int:ticket_id}", response=schemas.TicketDetail)
 def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
     ticket = get_object_or_404(models.Ticket, id=ticket_id)
@@ -112,10 +121,13 @@ def list_tickets(
     sort: SortField = SortField.created_at,
     order: SortOrder = SortOrder.desc,
     needs_human_eyes: bool | None = None,
+    status: List[str] = Query([]),
 ):
     queryset = models.Ticket.objects.all()
     if needs_human_eyes is not None:
         queryset = queryset.filter(needs_human_eyes=needs_human_eyes)
+    if status:
+        queryset = queryset.filter(status__name__in=status)  # OR across values
     sort_key = sort.value
     if sort is SortField.priority:
         sort_key = "priority_rank"

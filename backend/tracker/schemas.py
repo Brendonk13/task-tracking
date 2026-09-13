@@ -137,3 +137,7 @@ class TicketDetail(TicketListItem):
 class StatusItem(Schema):
     name: str
     is_builtin: bool
+
+
+class TicketsSummary(Schema):
+    needs_human_eyes_count: int

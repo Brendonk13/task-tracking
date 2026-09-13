@@ -1,4 +1,5 @@
 import { useSessions } from "@/api/hooks/sessions"
+import { ResumeSessionButton } from "@/components/sessions/ResumeSessionButton"
 import {
   Table,
   TableBody,
@@ -33,6 +34,9 @@ export function SessionsPage() {
               <TableHead>Directory</TableHead>
               <TableHead>Last message</TableHead>
               <TableHead className="w-36">Last activity</TableHead>
+              <TableHead className="w-12">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -53,6 +57,13 @@ export function SessionsPage() {
                       {formatRelativeTime(session.last_message_at)}
                     </time>
                   )}
+                </TableCell>
+                <TableCell>
+                  <ResumeSessionButton
+                    sessionId={session.session_id}
+                    directory={session.directory}
+                    name={session.name}
+                  />
                 </TableCell>
               </TableRow>
             ))}

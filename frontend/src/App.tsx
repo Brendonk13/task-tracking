@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom"
+import { Navigate, Route, Routes } from "react-router-dom"
 import { AppShell } from "@/components/layout/AppShell"
 import { SessionsPage } from "@/pages/SessionsPage"
 import { TicketDetailPage } from "@/pages/TicketDetailPage"
@@ -12,6 +12,8 @@ export default function App() {
         <Route path="tickets/:id" element={<TicketDetailPage />} />
         <Route path="sessions" element={<SessionsPage />} />
       </Route>
+      {/* Unknown paths fall back to the ticket list. */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

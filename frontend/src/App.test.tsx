@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react"
 import App from "./App"
+import { currentLocation, LocationProbe } from "./test/location"
 import { statusesHandler, summaryHandler, ticketsHandler } from "./test/handlers"
 import { server } from "./test/msw"
 import { renderWithProviders } from "./test/render"
@@ -22,5 +23,18 @@ describe("App", () => {
     renderWithProviders(<App />, { route: "/sessions" })
     expect(screen.getByRole("navigation")).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: /sessions/i })).toBeInTheDocument()
+  })
+
+  it("redirects an unknown path to the home page", async () => {
+    renderWithProviders(
+      <>
+        <App />
+        <LocationProbe />
+      </>,
+      { route: "/not-a-real-page" },
+    )
+
+    expect(await screen.findByRole("heading", { name: /tickets/i })).toBeInTheDocument()
+    expect(currentLocation().pathname).toBe("/")
   })
 })

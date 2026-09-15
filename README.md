@@ -11,7 +11,7 @@ There is no auth. The app runs on your machine and is meant for one person.
 
 Prerequisites:
 
-- Python 3.12 and [`uv`](https://docs.astral.sh/uv/)
+- Python 3.14 and [`uv`](https://docs.astral.sh/uv/)
 - Node 22.12+ (24 recommended) and [`pnpm`](https://pnpm.io/) 11
 
 ```bash

@@ -1,0 +1,39 @@
+claude --resume 3a121d55-549c-47ca-9164-83b09f17c7c9
+
+
+  Verification (working tree and a fresh clone at HEAD)
+
+  ┌───────────────────────────────────────────────────┬────────────────────────────────────────────────────────┐
+  │                       Check                       │                         Result                         │
+  ├───────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ make install then make test                       │ backend 48 passed, frontend 31 passed, typecheck clean │
+  ├───────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ make check-contract                               │ exit 0                                                 │
+  ├───────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ makemigrations --check                            │ no changes                                             │
+  ├───────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ pnpm lint                                         │ exit 0                                                 │
+  ├───────────────────────────────────────────────────┼────────────────────────────────────────────────────────┤
+  │ make e2e (Playwright, real backend, throwaway DB) │ 1 passed                                               │
+  └───────────────────────────────────────────────────┴────────────────────────────────────────────────────────┘
+
+  What landed this session
+  - Contract resync after the backend refactors, then lanes F2 (7 slices plus an empty-state slice), F3 (9 slices), and F4 (3 slices), each as separate red and green commits.
+  - Phase 8: Playwright smoke test covering register, create, status change, list chip, detail event line, status filter with reload, needs-human-eyes filter, and badge count. README with verified curl examples for every endpoint. CI with backend,
+    frontend, contract, and e2e jobs.
+  - Frontend reviews (F1/F2, F3/F4, final pass): twenty refactor commits and seven pin tests. Real bugs fixed: sidebar badge stale after flagging from the detail page, status select going stale after background refetch, new custom status missing from the
+    select, focus lost after posting, contradictory aria-pressed on the sidebar toggle.
+  - Backend final review: seven pin tests and fixes for a real 500 when a session row is deleted, blank normalisation of labels, title, Linear URL and comment body, the reserved human session id, a race-safe first registration with a unique name
+    constraint, a 100-character status limit, and a TicketCreate contract that now marks defaulted fields optional.
+  - Review follow-ups that were out of scope are recorded in PLAN.md section 8.
+
+  Notes
+  - The Test Writer once overwrote the Implementer's freshly created detail page with a throwaway stub. The file was recreated identically and the agent was barred from touching production paths. No committed history was affected.
+  - The Implementer rewrote four of its own unpushed refactor commits after a bad batch; every commit on main was verified green before it was made.
+  - A temporary clone used for the clean-clone check is left at /tmp/tmp.5bPYK5yG6h because deleting it was denied. It is safe to remove.
+  - idk.txt remains untracked at the repo root, as before. Nothing has been pushed to origin.
+
+✻ Crunched for 39m 34s · done 1:00 AM
+
+※ recap: Executing PLAN.md for the ticket tracker is complete: all slices, reviews, README, CI, and the Playwright smoke test are committed and verified green from a clean clone. Next action is yours: review the commits on main and push when ready.
+  (disable recaps in /config)

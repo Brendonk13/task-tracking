@@ -1,0 +1,72 @@
+we use linear and i wanna create my own personal private ticketing system to keep track of things
+
+help me build a plan that uses red/green tdd, and the plan is meant to be executed by a orchestrator launching different agents
+
+tech stack:
+    simple python server, using django-ninja and sqllite db, should produce openai spec for types that the typescript frontend can use to get the types for the api endpoints
+    frontend should be shadcn, tailwind, react, react-query, typescript
+
+features:
+
+
+List Ticket Page:
+    - I can see all tickets and can sort and filter by their status's (ie blocked)
+    - another filter is for ones that "need human eyes" thats basically an alert so I can see these ones easily
+
+Ticket Detail Page:
+    - has a title, description, priority: urgent, high, med, low, no priority, has a "project" tag and label tags which are both just tags
+    - has comments made by llms
+        -- this is the most important feature !!
+        - llm's will post their updates ie "XXXX claude session changed the status to 'planning'"
+        - there will be a static list of status's but also the ability to have a custom status
+        - a ticket can have multiple statuses
+        - the status is set via a endpoint, which accepts the status to change to and a reason
+        - all ticket endpoints should require passing in which llm is doing it so we can record who changed the status
+        - we have a feature where it shows major events like "llm cool-willow changed the status from planning to implementing-plan"
+
+statuses:
+    - blocked, needs-help, planning, implementing-plan, diagnosing-ticket, needs-clarification, ready-for-pr, merged, tested-in-cloud, done
+
+Claude sessions:
+    - we need an idempotent ednpoint for me to register new claude sessions with this app
+    what we store per session:
+        - the last thing message I sent it, and the time I did that
+        - session id
+        - directory started from
+        - session name
+        - (there will be a button called like "resume session" which just copies the cmd to clipboard: cd $directory && claude --resume $session_id
+        - each claude session has a name like "cool-willow" which we generate
+
+Home page:
+    - is the list ticket page
+    - layout has a collapsible side bar where each sidebar thing has a icon and a name, when uncollapsed it shows both
+    - when collapsed it only shows icon
+    - things in sidebar: tickets (this has a number icon in read in a alert-style to show me how many tickets need a human to do something)
+    - has a thing for the claude sessions page
+
+build me a plan that uses red/green TDD to create a server that i call endpoint and pass linear ticket urls and it will just show the ticket and title and description but most importantly, it has endpoints for me to comment on the tickets
+
+my goal is to have llm's post their statuses to here and then i can see whats blocked etc
+
+we will also need to have a tab in the collapsible sidebar which highlights tickets that need my attention which is just a column on the db row for that ticket
+
+there will be a mostly static list of ticket statuses' ie: blocked, needs-human, planning, custom, etc
+
+we also tie claude code session id's and titles and directory it started in and each comment u can see a diff claude session like which one commented
+
+each claude session is given a name like cool-willow ie random names
+
+there is a button to copy a command which does cd $claude-dir && claude --resume $session-id
+
+the plan should have a orchestrator agent launching subagents like architecture subagents, review subagents, etc
+
+
+
+my process for creating a pr:
+    - plan
+    - review plan
+    - implement plan
+    - review code
+    - run test suite not with full cpu or anything
+    - run tests in browser if possible
+    - generate pr description -- need a skill for this cuz the current ones suck

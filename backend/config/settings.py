@@ -1,7 +1,11 @@
 """
 Django settings for the Task Tracking backend.
 
-Local, private, single-user app. DEBUG stays on and ALLOWED_HOSTS is open.
+Local, private, single-user app. DEBUG stays on. The server is reachable from
+this machine only: it binds to 127.0.0.1 (see the Makefile), ALLOWED_HOSTS lists
+only loopback names, and LocalhostOnlyMiddleware rejects any peer that is not on
+the loopback interface.
+
 No CORS package: the Vite dev server proxies /api to this backend, so the
 browser only ever talks to one origin.
 """
@@ -14,7 +18,8 @@ SECRET_KEY = "django-insecure-task-tracking-local-dev-only"
 
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+# Loopback only. A request whose Host header names anything else gets a 400.
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
@@ -24,6 +29,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "config.middleware.LocalhostOnlyMiddleware",
     "django.middleware.common.CommonMiddleware",
 ]
 

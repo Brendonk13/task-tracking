@@ -6,6 +6,18 @@ tickets over a small JSON API. The human opens the web UI to see what is blocked
 what needs a decision, and which session to resume to pick the work back up.
 
 There is no auth. The app runs on your machine and is meant for one person.
+Instead of auth, it only accepts requests from localhost — three separate checks:
+
+- Both servers bind to `127.0.0.1`, so nothing on your network can open a socket
+  to them.
+- `ALLOWED_HOSTS` is `localhost`, `127.0.0.1`, `[::1]`; any other `Host` header
+  gets a `400`.
+- `config.middleware.LocalhostOnlyMiddleware` rejects a request with `403` unless
+  the peer address is on the loopback interface. It reads `REMOTE_ADDR`, the real
+  socket peer, so a forged `X-Forwarded-For` does not get past it.
+
+Do not run `manage.py runserver 0.0.0.0:8000` or `vite --host` to reach the app
+from another device: there is no auth behind the localhost check.
 
 ## Run it
 

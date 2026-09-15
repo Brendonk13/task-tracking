@@ -14,9 +14,15 @@ export default defineConfig({
     },
   },
   server: {
+    // Loopback only: this app is single-user and must not be reachable from the
+    // network, so never pass --host / set this to 0.0.0.0.
+    host: "127.0.0.1",
     proxy: {
       "/api": "http://localhost:8000",
     },
+  },
+  preview: {
+    host: "127.0.0.1",
   },
   test: {
     environment: "jsdom",

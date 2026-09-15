@@ -8,7 +8,7 @@ dev:
 	$(MAKE) -j2 dev-backend dev-frontend
 
 dev-backend:
-	cd backend && uv run python manage.py migrate --no-input && uv run python manage.py runserver 8000
+	cd backend && uv run python manage.py migrate --no-input && uv run python manage.py runserver 127.0.0.1:8000
 
 dev-frontend:
 	cd frontend && pnpm dev

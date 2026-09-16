@@ -40,6 +40,7 @@ export function makeTicket(overrides: Partial<TicketListItem> = {}): TicketListI
     project: null,
     labels: [],
     linear_url: null,
+    parent_id: null,
     created_at: "2026-09-12T10:00:00Z",
     updated_at: "2026-09-12T10:00:00Z",
     ...overrides,
@@ -67,10 +68,13 @@ export function makeTimelineEntry(overrides: Partial<TimelineEntry> = {}): Timel
   }
 }
 
-/** Builds a `TicketDetail` on top of `makeTicket` defaults, with an empty description and timeline. */
+/**
+ * Builds a `TicketDetail` on top of `makeTicket` defaults, with an empty description and
+ * timeline and no parent or sub-tickets.
+ */
 export function makeTicketDetail(overrides: Partial<TicketDetail> = {}): TicketDetail {
-  const { description = "", timeline = [], ...listOverrides } = overrides
-  return { ...makeTicket(listOverrides), description, timeline }
+  const { description = "", timeline = [], parent = null, children = [], ...listOverrides } = overrides
+  return { ...makeTicket(listOverrides), description, timeline, parent, children }
 }
 
 /** The reserved human actor (memo A1). */

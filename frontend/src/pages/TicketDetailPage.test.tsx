@@ -7,6 +7,7 @@ import { TicketDetailPage } from "@/pages/TicketDetailPage"
 import {
   BUILT_IN_STATUSES,
   HUMAN_ACTOR,
+  makeTicket,
   makeTicketDetail,
   makeTimelineEntry,
   recordRequests,
@@ -555,5 +556,69 @@ describe("TicketDetailPage", () => {
 
     const timeline = screen.queryByRole("list", { name: /timeline/i })
     if (timeline !== null) expect(within(timeline).queryAllByRole("listitem")).toHaveLength(0)
+  })
+
+  // Parent/child convention: a sub-ticket says "Sub-ticket of <parent title>" above the
+  // heading; a parent lists its children in a "Sub-tickets" list. Both link to the detail
+  // page of the other ticket. A ticket with neither shows no sub-ticket UI at all.
+  it("links to the parent when the ticket is a sub-ticket", async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Write the migration",
+          parent_id: 3,
+          parent: { id: 3, title: "Ship auth" },
+        }),
+      ),
+    )
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Write the migration" })
+    expect(screen.getByText(/sub-ticket of/i)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Ship auth" })).toHaveAttribute(
+      "href",
+      "/tickets/3",
+    )
+    expect(screen.queryByRole("list", { name: /sub-tickets/i })).not.toBeInTheDocument()
+  })
+
+  it("lists the sub-tickets with their status and flags them when they need human eyes", async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 3,
+          title: "Ship auth",
+          children: [
+            makeTicket({ id: 7, title: "Write the migration", status: "blocked" }),
+            makeTicket({ id: 8, title: "Wire the frontend", needs_human_eyes: true }),
+          ],
+        }),
+      ),
+    )
+    renderDetail(3)
+
+    await screen.findByRole("heading", { level: 1, name: "Ship auth" })
+    const subTickets = screen.getByRole("list", { name: /sub-tickets/i })
+    const rows = within(subTickets).getAllByRole("listitem")
+    expect(rows).toHaveLength(2)
+
+    expect(within(rows[0]).getByRole("link", { name: "Write the migration" })).toHaveAttribute(
+      "href",
+      "/tickets/7",
+    )
+    expect(within(rows[0]).getByText("blocked")).toBeInTheDocument()
+    expect(within(rows[0]).queryByLabelText(/needs human eyes/i)).not.toBeInTheDocument()
+    expect(within(rows[1]).getByLabelText(/needs human eyes/i)).toBeInTheDocument()
+    expect(screen.queryByText(/sub-ticket of/i)).not.toBeInTheDocument()
+  })
+
+  it("shows no sub-ticket UI for a standalone ticket", async () => {
+    server.use(ticketDetailHandler(makeTicketDetail({ id: 7, title: "Fix login" })))
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    expect(screen.queryByText(/sub-ticket of/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole("list", { name: /sub-tickets/i })).not.toBeInTheDocument()
   })
 })

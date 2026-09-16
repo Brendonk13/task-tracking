@@ -231,6 +231,7 @@ def test_list_tickets_includes_status_and_needs_human_eyes_per_row(client):
         "project": "avantos",
         "labels": ["ai", "infra"],
         "linear_url": linear_url,
+        "parent_id": None,
         "created_at": detail_body["created_at"],
         "updated_at": detail_body["updated_at"],
     }

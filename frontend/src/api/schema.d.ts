@@ -197,6 +197,8 @@ export interface components {
             project: string | null;
             /** Labels */
             labels: string[];
+            /** Parent Id */
+            parent_id: number | null;
             /**
              * Created At
              * Format: date-time
@@ -209,8 +211,51 @@ export interface components {
             updated_at: string;
             /** Description */
             description: string;
+            parent: components["schemas"]["TicketRef"] | null;
+            /** Children */
+            children: components["schemas"]["TicketListItem"][];
             /** Timeline */
             timeline: components["schemas"]["TimelineEntry"][];
+        };
+        /** TicketListItem */
+        TicketListItem: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            priority: components["schemas"]["Priority"];
+            /** Status */
+            status: string | null;
+            /** Needs Human Eyes */
+            needs_human_eyes: boolean;
+            /** Linear Url */
+            linear_url: string | null;
+            /** Project */
+            project: string | null;
+            /** Labels */
+            labels: string[];
+            /** Parent Id */
+            parent_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * TicketRef
+         * @description Just enough of a ticket to render a link to it.
+         */
+        TicketRef: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
         };
         /** TimelineEntry */
         TimelineEntry: {
@@ -257,6 +302,8 @@ export interface components {
              * @default []
              */
             labels?: string[];
+            /** Parent Id */
+            parent_id?: number | null;
             /** Actor Session Id */
             actor_session_id: string;
         };
@@ -270,34 +317,6 @@ export interface components {
          * @enum {string}
          */
         SortOrder: "asc" | "desc";
-        /** TicketListItem */
-        TicketListItem: {
-            /** Id */
-            id: number;
-            /** Title */
-            title: string;
-            priority: components["schemas"]["Priority"];
-            /** Status */
-            status: string | null;
-            /** Needs Human Eyes */
-            needs_human_eyes: boolean;
-            /** Linear Url */
-            linear_url: string | null;
-            /** Project */
-            project: string | null;
-            /** Labels */
-            labels: string[];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
         /** TicketsSummary */
         TicketsSummary: {
             /** Needs Human Eyes Count */
@@ -320,6 +339,8 @@ export interface components {
             project?: string | null;
             /** Labels */
             labels?: string[] | null;
+            /** Parent Id */
+            parent_id?: number | null;
             /** Actor Session Id */
             actor_session_id: string;
         };
@@ -398,6 +419,7 @@ export interface operations {
                 order?: "asc" | "desc";
                 needs_human_eyes?: boolean | null;
                 status?: string[];
+                parent?: number | null;
             };
             header?: never;
             path?: never;

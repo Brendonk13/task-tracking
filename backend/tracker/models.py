@@ -41,6 +41,11 @@ class Status(models.Model):
 
 class Ticket(models.Model):
     title = models.CharField(max_length=500)
+    # One level only: a ticket with a parent may not itself be a parent. The API
+    # enforces that; the column cannot.
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children"
+    )
     description = models.TextField(default="", blank=True)
     priority = models.CharField(
         max_length=10, choices=Priority.choices, default=Priority.NONE

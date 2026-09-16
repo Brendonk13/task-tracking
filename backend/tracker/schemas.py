@@ -53,6 +53,7 @@ class TicketCreate(Schema):
     linear_url: str | None = None
     project: str | None = None
     labels: list[str] = []
+    parent_id: int | None = None
     actor_session_id: str
 
     @field_validator("title")
@@ -84,6 +85,7 @@ class TicketPatch(Schema):
     linear_url: str | None = None
     project: str | None = None
     labels: list[str] | None = None
+    parent_id: int | None = None
     actor_session_id: str
 
     @field_validator("title")
@@ -175,6 +177,13 @@ class TimelineEntry(Schema):
         return pre_resolved or actors.actor_view(obj.actor_session_id)
 
 
+class TicketRef(Schema):
+    """Just enough of a ticket to render a link to it."""
+
+    id: int
+    title: str
+
+
 class TicketListItem(Schema):
     id: int
     title: str
@@ -184,6 +193,7 @@ class TicketListItem(Schema):
     linear_url: str | None
     project: str | None
     labels: list[str]
+    parent_id: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -202,7 +212,14 @@ class TicketListItem(Schema):
 
 class TicketDetail(TicketListItem):
     description: str
+    parent: TicketRef | None
+    children: list[TicketListItem]
     timeline: list[TimelineEntry]
+
+    @staticmethod
+    def resolve_children(obj):
+        # Oldest first; uses the prefetch cache set up by the tickets router.
+        return obj.children.all()
 
     @staticmethod
     def resolve_timeline(obj):

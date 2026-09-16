@@ -67,7 +67,9 @@ The flow a Claude Code session follows:
    is required every time. The UI builds the resume command
    `cd <directory> && claude --resume <session_id>` from these fields, so keep them accurate.
 2. **Create a ticket, or find one.** `POST /api/tickets` returns `201` with the new ticket
-   and its `id`. `GET /api/tickets` lists existing tickets.
+   and its `id`. `GET /api/tickets` lists existing tickets. When you break work down, pass
+   `parent_id` to create the pieces as sub-tickets of the ticket you were given (see
+   "Sub-tickets"), so the decomposition outlives your session.
 3. **Set the status with a reason.** `POST /api/tickets/{id}/status` with
    `{status, reason, actor_session_id}`. `reason` is required. Use a built-in status name
    or any new string; unknown names become custom statuses on first use.
@@ -223,11 +225,13 @@ curl -s http://localhost:8000/api/statuses
 Two response shapes are used. `TicketListItem` is one row of the list:
 
 ```
-id, title, priority, status, needs_human_eyes, linear_url, project, labels, created_at, updated_at
+id, title, priority, status, needs_human_eyes, linear_url, project, labels, parent_id,
+created_at, updated_at
 ```
 
-`TicketDetail` is `TicketListItem` plus `description` and `timeline`. Every timeline entry
-has the same flat shape:
+`TicketDetail` is `TicketListItem` plus `description`, `parent`, `children` and `timeline`.
+`parent` is `{id, title}` or `null`; `children` is a `TicketListItem[]`, oldest first.
+Every timeline entry has the same flat shape:
 
 ```
 id, kind, actor {session_id, name, directory}, body, created_at, from_status, to_status, reason
@@ -241,7 +245,7 @@ always de-duplicated and sorted. The `timeline` is ordered oldest first.
 #### `POST /api/tickets`
 
 Create a ticket. Body: `title` (required), `description` (default `""`), `priority`,
-`linear_url`, `project`, `labels`, `actor_session_id` (required). Returns `201` with
+`linear_url`, `project`, `labels`, `parent_id`, `actor_session_id` (required). Returns `201` with
 `TicketDetail`. Status and the needs-human-eyes flag cannot be set here; use the
 endpoints below (`status` and `needs_human_eyes` keys in this body are silently
 ignored). `title` is stripped and must be non-empty; blank `linear_url`/`project`
@@ -289,6 +293,7 @@ List tickets as `TicketListItem[]` (a plain array). Query parameters:
 |---|---|---|
 | `status` | any status name, repeatable | `?status=blocked&status=needs-help` returns tickets in either status (OR). Unknown names match nothing. |
 | `needs_human_eyes` | `true` / `false` | Omit to return both. |
+| `parent` | a ticket id | Returns the sub-tickets of that ticket. An unknown id matches nothing. |
 | `sort` | `created_at` (default), `updated_at`, `priority` | `priority` orders `urgent > high > medium > low > none`. `updated_at` bumps on every non-no-op mutation, including comments, so it means "recent activity". |
 | `order` | `desc` (default), `asc` | Ties break on `created_at`, then `id`, in the same direction. |
 
@@ -407,11 +412,11 @@ HTTP/1.1 404 Not Found
 #### `PATCH /api/tickets/{id}`
 
 Edit fields. Body: any of `title`, `description`, `priority`, `linear_url`, `project`,
-`labels`, plus `actor_session_id` (required). Semantics:
+`labels`, `parent_id`, plus `actor_session_id` (required). Semantics:
 
 - Per-key replace. Keys you omit are untouched.
 - `labels` replaces the whole list. `[]` clears it.
-- An explicit `null` clears `project` or `linear_url`. `null` on `title`, `description`,
+- An explicit `null` clears `project`, `linear_url`, or `parent_id`. `null` on `title`, `description`,
   `priority`, or `labels` is rejected with `422`.
 - One `field_change` timeline entry is written per field whose value actually changed,
   with body `<name> changed <field> from <old> to <new>`. Empty values render as `(none)`;
@@ -437,6 +442,34 @@ curl -s -X PATCH http://localhost:8000/api/tickets/1 -H 'Content-Type: applicati
   "...": "..."
 }
 ```
+
+#### Sub-tickets
+
+A ticket can have one parent, set with `parent_id` on create or PATCH. The hierarchy is
+**one level deep**: a sub-ticket cannot have sub-tickets of its own. `GET /api/tickets/{id}`
+returns `parent` (`{id, title}` or `null`) and `children` (`TicketListItem[]`, oldest first);
+`GET /api/tickets?parent={id}` lists the same children as a flat list.
+
+Setting or clearing `parent_id` through PATCH writes one `field_change` entry, for example
+`sunny-crane changed parent_id from (none) to 3`. Setting the parent a ticket already has is
+a no-op. Nothing is rolled up: a parent's `status`, `priority` and `needs_human_eyes` are its
+own, and the sidebar badge counts flagged tickets one by one, parents and sub-tickets alike.
+
+```bash
+curl -s -X POST http://localhost:8000/api/tickets -H 'Content-Type: application/json' \
+  -d '{"title":"Write the migration","parent_id":3,"actor_session_id":"human"}'
+
+curl -s 'http://localhost:8000/api/tickets?parent=3'
+```
+
+Four requests are rejected with `400`, after the actor and ticket checks:
+
+| Body | When |
+|---|---|
+| `{"detail": "unknown parent"}` | No ticket has that `parent_id`. |
+| `{"detail": "a ticket cannot be its own parent"}` | `parent_id` is the ticket's own id. |
+| `{"detail": "a sub-ticket cannot have sub-tickets"}` | The requested parent already has a parent. |
+| `{"detail": "a ticket with sub-tickets cannot become one"}` | The ticket being patched already has children. |
 
 #### `POST /api/tickets/{id}/status`
 
@@ -552,6 +585,7 @@ Clearing it from the UI (`actor_session_id: "human"`, `value: false`) appends
 | `422` | Body fails validation (missing field; empty or whitespace-only `title`/`reason`/`body`/`status`; `status` over 100 chars; `null` on a non-nullable PATCH field; bad `priority`, `sort`, or `order`). Also `PUT /api/sessions/human` (reserved id). | `{"detail": [ ...pydantic errors... ]}` (a list) |
 | `404` | Ticket id does not exist. | `{"detail": "Not Found: No Ticket matches the given query."}` (`DEBUG=True` form) |
 | `400` | `actor_session_id` is not a registered session and not `human`. | `{"detail": "unknown actor"}` |
+| `400` | `parent_id` names no ticket, or breaks the one-level rule (see "Sub-tickets"). | `{"detail": "unknown parent"}` and three others |
 
 The checks run in that order, so a bad body on a missing ticket is `422`, and an unknown
 actor on a missing ticket is `404`.

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
-import { ExternalLink } from "lucide-react"
-import { useParams } from "react-router-dom"
+import { ExternalLink, TriangleAlert } from "lucide-react"
+import { Link, useParams } from "react-router-dom"
 import { useStatuses } from "@/api/hooks/statuses"
 import {
   useAddComment,
@@ -196,6 +196,37 @@ function StatusForm({ ticket }: { ticket: TicketDetail }) {
   )
 }
 
+function SubTickets({ items }: { items: TicketDetail["children"] }) {
+  return (
+    <section aria-labelledby="sub-tickets-heading" className="flex flex-col gap-2">
+      <h2 id="sub-tickets-heading" className="text-lg font-medium">
+        Sub-tickets
+      </h2>
+      <ul aria-label="Sub-tickets" className="flex flex-col gap-2">
+        {items.map((child) => (
+          <li key={child.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <Link
+              to={`/tickets/${child.id}`}
+              className="font-medium underline-offset-4 hover:underline"
+            >
+              {child.title}
+            </Link>
+            <StatusChip status={child.status} />
+            <PriorityBadge priority={child.priority} />
+            {child.needs_human_eyes && (
+              <TriangleAlert
+                aria-label="Needs human eyes"
+                role="img"
+                className="size-4 text-destructive"
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function NeedsHumanEyesToggle({ ticket }: { ticket: TicketDetail }) {
   const setFlag = useSetNeedsHumanEyes(ticket.id)
   return (
@@ -228,6 +259,17 @@ export function TicketDetailPage() {
   return (
     <article className="flex flex-col gap-6">
       <header className="flex flex-col gap-3">
+        {ticket.parent !== null && (
+          <p className="text-sm text-muted-foreground">
+            Sub-ticket of{" "}
+            <Link
+              to={`/tickets/${ticket.parent.id}`}
+              className="text-foreground underline-offset-4 hover:underline"
+            >
+              {ticket.parent.title}
+            </Link>
+          </p>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{ticket.title}</h1>
           <div className="flex flex-wrap items-center gap-4">
@@ -259,6 +301,8 @@ export function TicketDetailPage() {
           <p className="text-sm text-foreground/90 whitespace-pre-wrap">{ticket.description}</p>
         )}
       </header>
+
+      {ticket.children.length > 0 && <SubTickets items={ticket.children} />}
 
       <section aria-label="Change status" className="border-t pt-3">
         <StatusForm ticket={ticket} />

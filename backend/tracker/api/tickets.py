@@ -4,6 +4,7 @@ from typing import List
 from django.db.models import Case, IntegerField, Prefetch, Value, When
 from django.shortcuts import get_object_or_404
 from ninja import Query, Router
+from ninja.errors import HttpError
 from ninja.responses import Status
 
 from tracker import models, schemas
@@ -37,15 +38,36 @@ def _tickets():
 
 
 def _detail(ticket_id: int) -> models.Ticket:
-    """Load one ticket as ``TicketDetail`` needs it: tags, ordered timeline, actors."""
+    """Load one ticket as ``TicketDetail`` needs it: tags, parent, children, timeline, actors."""
     ticket = get_object_or_404(
-        _tickets().prefetch_related(
-            Prefetch("timeline", queryset=models.TimelineEntry.objects.order_by("created_at", "id"))
+        _tickets().select_related("parent").prefetch_related(
+            Prefetch("timeline", queryset=models.TimelineEntry.objects.order_by("created_at", "id")),
+            Prefetch("children", queryset=_tickets().order_by("created_at", "id")),
         ),
         id=ticket_id,
     )
     actors.attach_actors(ticket.timeline.all())
     return ticket
+
+
+def _validated_parent_id(parent_id: int | None, ticket_id: int | None = None) -> int | None:
+    """Check a requested parent, or return ``None`` when the parent is being cleared.
+
+    The hierarchy is one level deep: a parent may not itself be a sub-ticket, and a
+    ticket that already has sub-tickets may not become one.
+    """
+    if parent_id is None:
+        return None
+    if parent_id == ticket_id:
+        raise HttpError(400, "a ticket cannot be its own parent")
+    parent = models.Ticket.objects.filter(id=parent_id).only("id", "parent_id").first()
+    if parent is None:
+        raise HttpError(400, "unknown parent")
+    if parent.parent_id is not None:
+        raise HttpError(400, "a sub-ticket cannot have sub-tickets")
+    if ticket_id is not None and models.Ticket.objects.filter(parent_id=ticket_id).exists():
+        raise HttpError(400, "a ticket with sub-tickets cannot become one")
+    return parent_id
 
 
 def _ticket_and_actor(ticket_id: int, actor_session_id: str) -> tuple[models.Ticket, dict]:
@@ -70,6 +92,7 @@ def _record(
 @router.post("", response={201: schemas.TicketDetail})
 def create_ticket(request, payload: schemas.TicketCreate):
     actors.require_actor(payload.actor_session_id)
+    _validated_parent_id(payload.parent_id)
     ticket = models.Ticket.objects.create(
         **payload.dict(exclude={"actor_session_id", "project", "labels"})
     )
@@ -104,6 +127,8 @@ def tickets_summary(request):
 @router.patch("/{int:ticket_id}", response=schemas.TicketDetail)
 def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
     ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
+    if "parent_id" in payload.model_fields_set:
+        _validated_parent_id(payload.parent_id, ticket_id)
 
     current = {
         "title": ticket.title,
@@ -112,6 +137,7 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
         "linear_url": ticket.linear_url,
         "project": tags.project_of(ticket),
         "labels": tags.labels_of(ticket),
+        "parent_id": ticket.parent_id,
     }
     changed_fields = []
     for field, new in payload.dict(exclude_unset=True, exclude={"actor_session_id"}).items():
@@ -145,10 +171,13 @@ def list_tickets(
     order: SortOrder = SortOrder.desc,
     needs_human_eyes: bool | None = None,
     status: List[str] = Query([]),
+    parent: int | None = None,
 ):
     queryset = _tickets()
     if needs_human_eyes is not None:
         queryset = queryset.filter(needs_human_eyes=needs_human_eyes)
+    if parent is not None:
+        queryset = queryset.filter(parent_id=parent)  # unknown id matches nothing
     if status:
         queryset = queryset.filter(status__name__in=status)  # OR across values
     sort_key = sort.value

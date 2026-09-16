@@ -10,9 +10,17 @@ No CORS package: the Vite dev server proxies /api to this backend, so the
 browser only ever talks to one origin.
 """
 
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Reads backend/.env, which is gitignored. Keeps ANTHROPIC_API_KEY out of the repo.
+load_dotenv(BASE_DIR / ".env")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 SECRET_KEY = "django-insecure-task-tracking-local-dev-only"
 

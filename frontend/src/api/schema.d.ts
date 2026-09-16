@@ -108,6 +108,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tickets/{ticket_id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tasks
+         * @description A ticket's tasks, oldest first; the same rows as ``TicketDetail.tasks``.
+         */
+        get: operations["tracker_api_tickets_list_tasks"];
+        put?: never;
+        /** Create Task */
+        post: operations["tracker_api_tickets_create_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{session_id}": {
         parameters: {
             query?: never;
@@ -162,6 +183,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Task */
+        get: operations["tracker_api_tasks_get_task"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Task */
+        patch: operations["tracker_api_tasks_patch_task"];
+        trace?: never;
+    };
+    "/api/tasks/{task_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set State */
+        post: operations["tracker_api_tasks_set_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -180,6 +236,37 @@ export interface components {
          * @enum {string}
          */
         Priority: "urgent" | "high" | "medium" | "low" | "none";
+        /** Task */
+        Task: {
+            /** Id */
+            id: number;
+            /** Ticket Id */
+            ticket_id: number;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            state: components["schemas"]["TaskState"];
+            /** Depends On */
+            depends_on: number[];
+            /** Blocked By */
+            blocked_by: number[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * TaskState
+         * @enum {string}
+         */
+        TaskState: "todo" | "in_progress" | "done" | "cancelled";
         /** TicketDetail */
         TicketDetail: {
             /** Id */
@@ -214,6 +301,8 @@ export interface components {
             parent: components["schemas"]["TicketRef"] | null;
             /** Children */
             children: components["schemas"]["TicketListItem"][];
+            /** Tasks */
+            tasks: components["schemas"]["Task"][];
             /** Timeline */
             timeline: components["schemas"]["TimelineEntry"][];
         };
@@ -369,6 +458,74 @@ export interface components {
             /** Actor Session Id */
             actor_session_id: string;
         };
+        /** TaskDetail */
+        TaskDetail: {
+            /** Id */
+            id: number;
+            /** Ticket Id */
+            ticket_id: number;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            state: components["schemas"]["TaskState"];
+            /** Depends On */
+            depends_on: number[];
+            /** Blocked By */
+            blocked_by: number[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** History */
+            history: components["schemas"]["TaskHistoryEntry"][];
+        };
+        /** TaskHistoryEntry */
+        TaskHistoryEntry: {
+            /** Id */
+            id: number;
+            kind: components["schemas"]["TaskHistoryKind"];
+            actor: components["schemas"]["Actor"];
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            from_state: components["schemas"]["TaskState"] | null;
+            to_state: components["schemas"]["TaskState"] | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * TaskHistoryKind
+         * @enum {string}
+         */
+        TaskHistoryKind: "state_change" | "field_change";
+        /** TaskCreate */
+        TaskCreate: {
+            /** Title */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description?: string;
+            /**
+             * Depends On
+             * @default []
+             */
+            depends_on?: number[];
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
         /** Session */
         Session: {
             /** Session Id */
@@ -406,6 +563,29 @@ export interface components {
             name: string;
             /** Is Builtin */
             is_builtin: boolean;
+        };
+        /**
+         * TaskPatch
+         * @description Per-key replace, like ``TicketPatch``. No task field is nullable, so an explicit
+         *     ``null`` on any of them is rejected.
+         */
+        TaskPatch: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Depends On */
+            depends_on?: number[] | null;
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /** TaskStateIn */
+        TaskStateIn: {
+            state: components["schemas"]["TaskState"];
+            /** Reason */
+            reason?: string | null;
+            /** Actor Session Id */
+            actor_session_id: string;
         };
     };
     responses: never;
@@ -612,6 +792,54 @@ export interface operations {
             };
         };
     };
+    tracker_api_tickets_list_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"][];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_create_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDetail"];
+                };
+            };
+        };
+    };
     tracker_api_sessions_register_session: {
         parameters: {
             query?: never;
@@ -674,6 +902,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusItem"][];
+                };
+            };
+        };
+    };
+    tracker_api_tasks_get_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tasks_patch_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tasks_set_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskStateIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDetail"];
                 };
             };
         };

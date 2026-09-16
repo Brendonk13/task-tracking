@@ -7,6 +7,8 @@ import { TicketDetailPage } from "@/pages/TicketDetailPage"
 import {
   BUILT_IN_STATUSES,
   HUMAN_ACTOR,
+  makeTask,
+  makeTaskHistoryEntry,
   makeTicket,
   makeTicketDetail,
   makeTimelineEntry,
@@ -620,5 +622,203 @@ describe("TicketDetailPage", () => {
     await screen.findByRole("heading", { level: 1, name: "Fix login" })
     expect(screen.queryByText(/sub-ticket of/i)).not.toBeInTheDocument()
     expect(screen.queryByRole("list", { name: /sub-tickets/i })).not.toBeInTheDocument()
+  })
+})
+
+// Tasks convention: a "Tasks" section with <ul aria-label="Tasks">, one <li data-state=...
+// data-blocked=...> per task, oldest first. Each row shows the title (a button that toggles the
+// task's history), a state chip, a "blocked" badge when `blocked_by` is non-empty, and a
+// <select aria-label="State of <title>"> for the human to change the state. "No tasks yet."
+// replaces the list when empty. The add form is a textbox "New task", an optional multi-select
+// "Depends on" (only when the ticket already has tasks) and a button "Add task".
+describe("TicketDetailPage tasks", () => {
+  beforeEach(() => {
+    server.use(statusesHandler())
+  })
+
+  it("lists the tasks with their state, dependencies and blocked badge", async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Ship tasks",
+          tasks: [
+            makeTask({ id: 1, ticket_id: 7, title: "Write the migration", state: "in_progress" }),
+            makeTask({
+              id: 2,
+              ticket_id: 7,
+              title: "Expose the API",
+              depends_on: [1],
+              blocked_by: [1],
+            }),
+            makeTask({ id: 3, ticket_id: 7, title: "Write docs", state: "done" }),
+          ],
+        }),
+      ),
+    )
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Ship tasks" })
+    const list = screen.getByRole("list", { name: /^tasks$/i })
+    const rows = within(list).getAllByRole("listitem")
+    expect(rows).toHaveLength(3)
+
+    expect(rows[0]).toHaveAttribute("data-state", "in_progress")
+    expect(rows[0]).toHaveAttribute("data-blocked", "false")
+    expect(within(rows[0]!).getByText("in progress", { selector: "[data-slot='badge']" })).toBeVisible()
+    expect(within(rows[0]!).queryByText("blocked")).toBeNull()
+
+    expect(rows[1]).toHaveAttribute("data-blocked", "true")
+    expect(within(rows[1]!).getByText("blocked", { selector: "[data-slot='badge']" })).toBeVisible()
+    expect(rows[1]).toHaveTextContent(/depends on:\s*Write the migration/i)
+
+    expect(rows[2]).toHaveAttribute("data-state", "done")
+    expect(within(rows[2]!).getByRole("combobox", { name: "State of Write docs" })).toHaveValue("done")
+    expect(screen.queryByText("No tasks yet.")).toBeNull()
+  })
+
+  it("shows an empty message and no dependency picker when the ticket has no tasks", async () => {
+    server.use(ticketDetailHandler(makeTicketDetail({ id: 7, title: "Fix login" })))
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    expect(screen.getByText("No tasks yet.")).toBeInTheDocument()
+    expect(screen.queryByRole("list", { name: /^tasks$/i })).toBeNull()
+    expect(screen.getByRole("textbox", { name: /new task/i })).toBeInTheDocument()
+    expect(screen.queryByRole("listbox", { name: /depends on/i })).toBeNull()
+  })
+
+  it('human can add a task with dependencies; request carries {title, depends_on, actor_session_id:"human"} and the list refreshes', async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({
+        id: 7,
+        title: "Ship tasks",
+        tasks: [makeTask({ id: 1, ticket_id: 7, title: "Write the migration" })],
+      }),
+    )
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Ship tasks" })
+    await user.type(screen.getByRole("textbox", { name: /new task/i }), "Expose the API")
+    await user.selectOptions(screen.getByRole("listbox", { name: /depends on/i }), "1")
+    await user.click(screen.getByRole("button", { name: /add task/i }))
+
+    await waitFor(() =>
+      expect(ticket.taskRequests).toEqual([
+        { title: "Expose the API", depends_on: [1], actor_session_id: "human" },
+      ]),
+    )
+
+    const list = await screen.findByRole("list", { name: /^tasks$/i })
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(2))
+    const [, added] = within(list).getAllByRole("listitem")
+    expect(added).toHaveTextContent("Expose the API")
+    expect(added).toHaveAttribute("data-blocked", "true")
+    expect(screen.getByRole("textbox", { name: /new task/i })).toHaveValue("")
+  })
+
+  it("human can change a task's state; dependents unblock when it is done", async () => {
+    const user = userEvent.setup()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({
+        id: 7,
+        title: "Ship tasks",
+        tasks: [
+          makeTask({ id: 1, ticket_id: 7, title: "Write the migration" }),
+          makeTask({ id: 2, ticket_id: 7, title: "Expose the API", depends_on: [1], blocked_by: [1] }),
+        ],
+      }),
+    )
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Ship tasks" })
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "State of Write the migration" }),
+      "done",
+    )
+
+    await waitFor(() =>
+      expect(ticket.taskStateRequests).toEqual([
+        { taskId: 1, body: { state: "done", actor_session_id: "human" } },
+      ]),
+    )
+    const list = screen.getByRole("list", { name: /^tasks$/i })
+    await waitFor(() => {
+      const [first, second] = within(list).getAllByRole("listitem")
+      expect(first).toHaveAttribute("data-state", "done")
+      expect(second).toHaveAttribute("data-blocked", "false")
+    })
+  })
+
+  // History convention: clicking the task title toggles an <ol aria-label="History of <title>">
+  // loaded from GET /api/tasks/:id, one <li data-kind=...> per entry with the actor in
+  // data-slot="history-actor", the body, and the reason when present. "No changes yet." when empty.
+  it("expanding a task loads and shows its history", async () => {
+    const user = userEvent.setup()
+    const requests = recordRequests()
+    const ticket = statefulTicketDetail(
+      makeTicketDetail({
+        id: 7,
+        title: "Ship tasks",
+        tasks: [makeTask({ id: 1, ticket_id: 7, title: "Write the migration", state: "done" })],
+      }),
+    )
+    ticket.seedTaskHistory(1, [
+      makeTaskHistoryEntry({
+        id: 1,
+        body: "cool-willow changed state from todo to in_progress",
+        reason: "starting",
+        created_at: "2026-09-12T10:00:00Z",
+      }),
+      makeTaskHistoryEntry({
+        id: 2,
+        actor: HUMAN_ACTOR,
+        body: "human changed state from in_progress to done",
+        from_state: "in_progress",
+        to_state: "done",
+        created_at: "2026-09-12T10:05:00Z",
+      }),
+    ])
+    server.use(...ticket.handlers)
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Ship tasks" })
+    expect(requests).not.toContain("/api/tasks/1")
+    expect(screen.queryByRole("list", { name: /history of/i })).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: /write the migration/i }))
+
+    const history = await screen.findByRole("list", { name: "History of Write the migration" })
+    const items = within(history).getAllByRole("listitem")
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAttribute("data-kind", "state_change")
+    expect(items[0]).toHaveTextContent("cool-willow changed state from todo to in_progress")
+    expect(within(items[0]!).getByText("starting")).toBeVisible()
+    expect(within(items[1]!).getByText("human", { selector: "[data-slot='history-actor']" })).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: /write the migration/i }))
+    expect(screen.queryByRole("list", { name: /history of/i })).toBeNull()
+  })
+
+  it("a failed task add shows an error and keeps the draft", async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post("/api/tickets/7/tasks", () =>
+        HttpResponse.json({ detail: "unknown actor" }, { status: 400 }),
+      ),
+      ticketDetailHandler(makeTicketDetail({ id: 7, title: "Fix login" })),
+    )
+    renderDetail(7)
+
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    await user.type(screen.getByRole("textbox", { name: /new task/i }), "Expose the API")
+    await user.click(screen.getByRole("button", { name: /add task/i }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent?.trim()).not.toBe("")
+    expect(screen.getByRole("textbox", { name: /new task/i })).toHaveValue("Expose the API")
   })
 })

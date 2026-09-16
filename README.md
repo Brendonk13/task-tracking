@@ -79,6 +79,13 @@ The flow a Claude Code session follows:
 5. **Ask for a human.** `POST /api/tickets/{id}/needs-human-eyes` with
    `{value, reason?, actor_session_id}`. `value: true` sets the flag; `false` clears it.
    This drives the red badge in the sidebar and the `needs_human_eyes=true` filter.
+6. **Break the ticket into tasks.** `POST /api/tickets/{id}/tasks` with
+   `{title, description?, depends_on?, actor_session_id}` for each small piece of work
+   ("write the migration", "expose the endpoint"). `depends_on` is a list of task ids on the
+   same ticket; the server rejects cycles, so the tasks always form a DAG. Move a task with
+   `POST /api/tasks/{task_id}/state` (`todo` → `in_progress` → `done`, or `cancelled`). Each
+   task keeps its own history. Pick the next task from `TicketDetail.tasks`: one in state
+   `todo` whose `blocked_by` is empty is ready to start (see "Tasks").
 
 Rules that apply to every mutating ticket endpoint:
 
@@ -243,8 +250,9 @@ id, title, priority, status, needs_human_eyes, linear_url, project, labels, pare
 created_at, updated_at
 ```
 
-`TicketDetail` is `TicketListItem` plus `description`, `parent`, `children` and `timeline`.
-`parent` is `{id, title}` or `null`; `children` is a `TicketListItem[]`, oldest first.
+`TicketDetail` is `TicketListItem` plus `description`, `parent`, `children`, `tasks` and
+`timeline`. `parent` is `{id, title}` or `null`; `children` is a `TicketListItem[]`, oldest
+first; `tasks` is a `Task[]`, oldest first (see "Tasks").
 Every timeline entry has the same flat shape:
 
 ```
@@ -592,14 +600,151 @@ curl -s -X POST http://localhost:8000/api/tickets/1/needs-human-eyes -H 'Content
 Clearing it from the UI (`actor_session_id: "human"`, `value: false`) appends
 `human cleared needs human eyes`.
 
+### Tasks
+
+A task is one small piece of a ticket's work: "write the migration", "expose the endpoint".
+A ticket has any number of tasks; a task belongs to exactly one ticket and is deleted with
+it. Tasks are not tickets: they have no status, priority, tags or flag, only a `state`.
+
+Two response shapes. `Task` is what `TicketDetail.tasks` and `GET /api/tickets/{id}/tasks`
+carry:
+
+```
+id, ticket_id, title, description, state, depends_on, blocked_by, created_at, updated_at
+```
+
+`TaskDetail` is `Task` plus `history`, and is what every task mutation returns. Each history
+entry has the same flat shape as a timeline entry, with states instead of statuses:
+
+```
+id, kind, actor {session_id, name, directory}, body, created_at, from_state, to_state, reason
+```
+
+`kind` is `state_change` or `field_change`; fields that do not apply are `null`. `state` is
+one of `todo` (default), `in_progress`, `done`, `cancelled`.
+
+**Dependencies.** `depends_on` is the list of task ids this task waits on, always sorted and
+de-duplicated. `blocked_by` is the subset of `depends_on` whose state is not `done` or
+`cancelled`; a `todo` task with an empty `blocked_by` is ready to start. Dependencies are
+advisory: the server does not stop you finishing a task whose dependencies are still open.
+What it does enforce is that the tasks on a ticket form a DAG:
+
+| Body | When |
+|---|---|
+| `{"detail": "unknown dependency"}` | An id in `depends_on` is not a task on this ticket (including a task on another ticket). |
+| `{"detail": "a task cannot depend on itself"}` | `depends_on` contains the task's own id. |
+| `{"detail": "dependencies would form a cycle"}` | Some task in `depends_on` already depends, directly or through others, on this task. |
+
+All three are `400`, checked after the actor check. `PATCH` replaces the whole list, so to
+reverse an edge `b -> a` into `a -> b`, clear `b` first and then point `a` at `b`.
+
+Every task mutation bumps the ticket's `updated_at` (A8: task activity is ticket activity)
+but writes nothing to the ticket's `timeline`; the record lives in the task's `history`.
+
+#### `POST /api/tickets/{id}/tasks`
+
+Create a task on the ticket. Body: `title` (required, stripped, non-empty), `description`
+(default `""`), `depends_on` (default `[]`), `actor_session_id` (required). Returns `201` with
+`TaskDetail`. The state cannot be set here; use the state endpoint.
+
+```bash
+curl -s -X POST http://localhost:8000/api/tickets/1/tasks -H 'Content-Type: application/json' \
+  -d '{"title":"Write the migration","actor_session_id":"0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f"}'
+
+curl -s -X POST http://localhost:8000/api/tickets/1/tasks -H 'Content-Type: application/json' \
+  -d '{"title":"Expose the endpoint","depends_on":[1],"actor_session_id":"0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f"}'
+```
+
+```json
+{
+  "id": 2,
+  "ticket_id": 1,
+  "title": "Expose the endpoint",
+  "description": "",
+  "state": "todo",
+  "depends_on": [1],
+  "blocked_by": [1],
+  "created_at": "2026-09-16T03:10:12.418Z",
+  "updated_at": "2026-09-16T03:10:12.418Z",
+  "history": []
+}
+```
+
+#### `GET /api/tickets/{id}/tasks`
+
+The ticket's tasks as `Task[]`, oldest first. The same rows as `TicketDetail.tasks`. Unknown
+ticket returns `404`.
+
+#### `GET /api/tasks/{task_id}`
+
+One task as `TaskDetail`. Unknown id returns `404`.
+
+#### `PATCH /api/tasks/{task_id}`
+
+Edit fields. Body: any of `title`, `description`, `depends_on`, plus `actor_session_id`
+(required). Same rules as the ticket PATCH: per-key replace, omitted keys untouched,
+`depends_on` replaces the whole list (`[]` clears it). No task field is nullable, so `null`
+on any of them is `422`. One `field_change` history entry is written per field that actually
+changed, with the ticket's body copy (`<name> changed depends_on from 1 to 1, 3`,
+`<name> changed description`). A PATCH that changes nothing writes nothing.
+
+```bash
+curl -s -X PATCH http://localhost:8000/api/tasks/2 -H 'Content-Type: application/json' \
+  -d '{"depends_on":[1,3],"actor_session_id":"human"}'
+```
+
+#### `POST /api/tasks/{task_id}/state`
+
+Set the state. Body: `state` (one of the four names; anything else is `422`), `reason`
+(optional; blank becomes `null`), `actor_session_id` (required). Writes a `state_change`
+entry with body `<name> changed state from <old> to <new>`. Setting the state a task already
+has returns `200` and writes nothing.
+
+```bash
+curl -s -X POST http://localhost:8000/api/tasks/1/state -H 'Content-Type: application/json' \
+  -d '{"state":"done","reason":"Migration applied on staging","actor_session_id":"0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f"}'
+```
+
+```json
+{
+  "id": 1,
+  "ticket_id": 1,
+  "title": "Write the migration",
+  "state": "done",
+  "depends_on": [],
+  "blocked_by": [],
+  "history": [
+    {
+      "id": 1,
+      "kind": "state_change",
+      "actor": { "session_id": "0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f", "name": "sunny-crane", "directory": "/home/me/code/avantos" },
+      "body": "sunny-crane changed state from todo to done",
+      "created_at": "2026-09-16T03:12:40.902Z",
+      "from_state": "todo",
+      "to_state": "done",
+      "reason": "Migration applied on staging"
+    }
+  ],
+  "...": "..."
+}
+```
+
+After this, `GET /api/tasks/2` shows `"blocked_by": []` while `depends_on` still lists `1`.
+
+The detail page lists a ticket's tasks under "Tasks" with a state chip, a `blocked` badge, and
+a per-task state select. Clicking a task's title shows its history. The "New task" form takes
+a title and, once the ticket has tasks, a multi-select of dependencies.
+
 ### Errors
 
 | Code | When | Body |
 |---|---|---|
-| `422` | Body fails validation (missing field; empty or whitespace-only `title`/`reason`/`body`/`status`; `status` over 100 chars; `null` on a non-nullable PATCH field; bad `priority`, `sort`, or `order`). Also `PUT /api/sessions/human` (reserved id). | `{"detail": [ ...pydantic errors... ]}` (a list) |
+| `422` | Body fails validation (missing field; empty or whitespace-only `title`/`reason`/`body`/`status`; `status` over 100 chars; `null` on a non-nullable PATCH field; bad `priority`, `state`, `sort`, or `order`). Also `PUT /api/sessions/human` (reserved id). | `{"detail": [ ...pydantic errors... ]}` (a list) |
 | `404` | Ticket id does not exist. | `{"detail": "Not Found: No Ticket matches the given query."}` (`DEBUG=True` form) |
+| `404` | Task id does not exist. | `{"detail": "Not Found: No Task matches the given query."}` (`DEBUG=True` form) |
 | `400` | `actor_session_id` is not a registered session and not `human`. | `{"detail": "unknown actor"}` |
 | `400` | `parent_id` names no ticket, or breaks the one-level rule (see "Sub-tickets"). | `{"detail": "unknown parent"}` and three others |
+| `400` | `depends_on` names a task off this ticket, the task itself, or would close a cycle (see "Tasks"). | `{"detail": "unknown dependency"}` and two others |
 
 The checks run in that order, so a bad body on a missing ticket is `422`, and an unknown
 actor on a missing ticket is `404`.
@@ -616,10 +761,10 @@ task-tracking/
     manage.py
     config/settings.py, urls.py # api mounted at /api
     tracker/
-      models.py                 # Ticket, Tag, Status, Session, TimelineEntry
+      models.py                 # Ticket, Tag, Status, Session, TimelineEntry, Task, TaskDependency, TaskHistoryEntry
       schemas.py                # request/response schemas (the OpenAPI source of truth)
-      api/tickets.py, sessions.py, statuses.py
-      services/actors.py, tags.py, names.py
+      api/tickets.py, sessions.py, statuses.py, tasks.py
+      services/actors.py, tags.py, names.py, tasks.py (DAG checks), changes.py
       migrations/               # 0007 seeds the ten built-in statuses
       tests/                    # pytest, HTTP through ninja's TestClient
   frontend/                     # Vite + React 19 + TypeScript + Tailwind + shadcn, managed by pnpm
@@ -630,6 +775,7 @@ task-tracking/
       api/client.ts             # openapi-fetch client typed by schema.d.ts
       api/hooks/                # react-query hooks, one file per resource
       components/layout/        # AppShell, Sidebar (badge from /api/tickets/summary)
+      components/tickets/       # TicketBadges, StatusFilter, TaskList
       pages/                    # TicketListPage, TicketDetailPage, SessionsPage
       test/                     # Vitest setup, MSW server and handlers
 ```

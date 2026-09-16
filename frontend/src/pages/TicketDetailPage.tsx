@@ -11,6 +11,7 @@ import {
   type TimelineEntry,
 } from "@/api/hooks/tickets"
 import { ResumeSessionButton } from "@/components/sessions/ResumeSessionButton"
+import { TaskList } from "@/components/tickets/TaskList"
 import { PriorityBadge, StatusChip } from "@/components/tickets/TicketBadges"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -303,6 +304,8 @@ export function TicketDetailPage() {
       </header>
 
       {ticket.children.length > 0 && <SubTickets items={ticket.children} />}
+
+      <TaskList ticket={ticket} />
 
       <section aria-label="Change status" className="border-t pt-3">
         <StatusForm ticket={ticket} />

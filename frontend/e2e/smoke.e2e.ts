@@ -14,6 +14,7 @@ const API = "/api"
 type Session = components["schemas"]["Session"]
 type TicketDetail = components["schemas"]["TicketDetail"]
 type TicketsSummary = components["schemas"]["TicketsSummary"]
+type TaskDetail = components["schemas"]["TaskDetail"]
 
 async function json<T>(response: Awaited<ReturnType<APIRequestContext["get"]>>): Promise<T> {
   expect(response.ok(), `${response.url()} -> ${response.status()} ${await response.text()}`).toBe(true)
@@ -143,5 +144,49 @@ test("a session posts a blocked ticket and the human sees it in the UI", async (
     const row = page.getByRole("row").filter({ hasText: title })
     await expect(row).toHaveCount(1)
     await expect(row.getByRole("img", { name: "Needs human eyes" })).toBeVisible()
+  })
+
+  // --- 7. Tasks: a session breaks the ticket down via the API; the human works the DAG in the UI ---
+  await test.step("tasks with a dependency show as blocked until the human finishes the first", async () => {
+    const migration = await request.post(`${API}/tickets/${ticketId}/tasks`, {
+      data: { title: "Write the migration", actor_session_id: sessionId },
+    })
+    expect(migration.status()).toBe(201)
+    const migrationTask = (await migration.json()) as TaskDetail
+
+    const endpoint = (await (
+      await request.post(`${API}/tickets/${ticketId}/tasks`, {
+        data: {
+          title: "Expose the endpoint",
+          depends_on: [migrationTask.id],
+          actor_session_id: sessionId,
+        },
+      })
+    ).json()) as TaskDetail
+    expect(endpoint.blocked_by).toEqual([migrationTask.id])
+
+    // A cycle is refused by the real backend.
+    const cycle = await request.patch(`${API}/tasks/${migrationTask.id}`, {
+      data: { depends_on: [endpoint.id], actor_session_id: sessionId },
+    })
+    expect(cycle.status()).toBe(400)
+    expect(await cycle.json()).toEqual({ detail: "dependencies would form a cycle" })
+
+    await page.goto(`/tickets/${ticketId}`)
+    const tasks = page.getByRole("list", { name: "Tasks", exact: true })
+    const rows = tasks.getByRole("listitem")
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(1)).toHaveAttribute("data-blocked", "true")
+    await expect(rows.nth(1).getByText("blocked", { exact: true })).toBeVisible()
+
+    await rows.nth(0).getByRole("combobox", { name: "State of Write the migration" }).selectOption("done")
+    await expect(rows.nth(0)).toHaveAttribute("data-state", "done")
+    await expect(rows.nth(1)).toHaveAttribute("data-blocked", "false")
+
+    // The task's history records the human's change.
+    await rows.nth(0).getByRole("button", { name: "Write the migration" }).click()
+    const history = page.getByRole("list", { name: "History of Write the migration" })
+    await expect(history.getByRole("listitem")).toHaveCount(1)
+    await expect(history).toContainText("human changed state from todo to done")
   })
 })

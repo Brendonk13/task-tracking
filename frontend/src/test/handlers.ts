@@ -11,6 +11,11 @@ type Actor = components["schemas"]["Actor"]
 type CommentIn = components["schemas"]["CommentIn"]
 type StatusChangeIn = components["schemas"]["StatusChangeIn"]
 type NeedsHumanEyesIn = components["schemas"]["NeedsHumanEyesIn"]
+type Task = components["schemas"]["Task"]
+type TaskDetail = components["schemas"]["TaskDetail"]
+type TaskHistoryEntry = components["schemas"]["TaskHistoryEntry"]
+type TaskCreate = components["schemas"]["TaskCreate"]
+type TaskStateIn = components["schemas"]["TaskStateIn"]
 
 /** The ten built-in statuses, in the canonical order `GET /api/statuses` returns them. */
 export const BUILT_IN_STATUSES: StatusItem[] = [
@@ -68,13 +73,63 @@ export function makeTimelineEntry(overrides: Partial<TimelineEntry> = {}): Timel
   }
 }
 
+let nextTaskId = 1
+
+/** Builds a `Task` in state `todo` with no dependencies; ids auto-increment per test file. */
+export function makeTask(overrides: Partial<Task> = {}): Task {
+  const id = overrides.id ?? nextTaskId++
+  return {
+    id,
+    ticket_id: 1,
+    title: `Task ${id}`,
+    description: "",
+    state: "todo",
+    depends_on: [],
+    blocked_by: [],
+    created_at: "2026-09-12T10:00:00Z",
+    updated_at: "2026-09-12T10:00:00Z",
+    ...overrides,
+  }
+}
+
+let nextTaskHistoryId = 1
+
+/** Builds a `TaskHistoryEntry`; defaults to a state change by the session `cool-willow`. */
+export function makeTaskHistoryEntry(overrides: Partial<TaskHistoryEntry> = {}): TaskHistoryEntry {
+  const id = overrides.id ?? nextTaskHistoryId++
+  return {
+    id,
+    kind: "state_change",
+    actor: { session_id: "sess-1", name: "cool-willow", directory: "/home/dev/app" },
+    body: "cool-willow changed state from todo to in_progress",
+    created_at: "2026-09-12T10:00:00Z",
+    from_state: "todo",
+    to_state: "in_progress",
+    reason: null,
+    ...overrides,
+  }
+}
+
+/** Builds a `TaskDetail` on top of `makeTask` defaults, with an empty history. */
+export function makeTaskDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
+  const { history = [], ...taskOverrides } = overrides
+  return { ...makeTask(taskOverrides), history }
+}
+
 /**
- * Builds a `TicketDetail` on top of `makeTicket` defaults, with an empty description and
- * timeline and no parent or sub-tickets.
+ * Builds a `TicketDetail` on top of `makeTicket` defaults, with an empty description,
+ * timeline and task list, and no parent or sub-tickets.
  */
 export function makeTicketDetail(overrides: Partial<TicketDetail> = {}): TicketDetail {
-  const { description = "", timeline = [], parent = null, children = [], ...listOverrides } = overrides
-  return { ...makeTicket(listOverrides), description, timeline, parent, children }
+  const {
+    description = "",
+    timeline = [],
+    parent = null,
+    children = [],
+    tasks = [],
+    ...listOverrides
+  } = overrides
+  return { ...makeTicket(listOverrides), description, timeline, parent, children, tasks }
 }
 
 /** The reserved human actor (memo A1). */
@@ -95,6 +150,10 @@ export function statefulTicketDetail(initial: TicketDetail) {
   const commentRequests: CommentIn[] = []
   const statusRequests: StatusChangeIn[] = []
   const flagRequests: NeedsHumanEyesIn[] = []
+  const taskRequests: TaskCreate[] = []
+  const taskStateRequests: { taskId: number; body: TaskStateIn }[] = []
+  /** Per-task history, keyed by task id; `GET /api/tasks/:id` joins it onto the embedded task. */
+  const taskHistory = new Map<number, TaskHistoryEntry[]>()
   /** Custom statuses this "server" has seen, in first-use order (A13 lists them sorted). */
   const customStatuses: string[] = []
 
@@ -130,8 +189,61 @@ export function statefulTicketDetail(initial: TicketDetail) {
     return `2026-09-13T12:${String(clock).padStart(2, "0")}:00Z`
   }
 
+  const FINISHED: Task["state"][] = ["done", "cancelled"]
+  /** Recomputes every task's `blocked_by` from the current states, like the backend does. */
+  const withBlockedBy = (tasks: Task[]): Task[] => {
+    const stateOf = new Map(tasks.map((t) => [t.id, t.state]))
+    return tasks.map((t) => ({
+      ...t,
+      blocked_by: t.depends_on.filter((id) => !FINISHED.includes(stateOf.get(id) ?? "todo")),
+    }))
+  }
+  const taskDetail = (task: Task): TaskDetail => ({ ...task, history: taskHistory.get(task.id) ?? [] })
+
   const handlers = [
     http.get(`/api/tickets/${initial.id}`, () => HttpResponse.json(detail)),
+    http.post(`/api/tickets/${initial.id}/tasks`, async ({ request }) => {
+      const body = (await request.json()) as TaskCreate
+      taskRequests.push(body)
+      const task = makeTask({
+        ticket_id: initial.id,
+        title: body.title,
+        description: body.description ?? "",
+        depends_on: [...(body.depends_on ?? [])].sort((a, b) => a - b),
+        created_at: nextCreatedAt(),
+      })
+      const tasks = withBlockedBy([...detail.tasks, task])
+      detail = { ...detail, tasks, updated_at: task.created_at }
+      return HttpResponse.json(taskDetail(tasks[tasks.length - 1]!), { status: 201 })
+    }),
+    http.get("/api/tasks/:id", ({ params }) => {
+      const task = detail.tasks.find((t) => t.id === Number(params.id))
+      if (task === undefined) return HttpResponse.json({ detail: "Not Found" }, { status: 404 })
+      return HttpResponse.json(taskDetail(task))
+    }),
+    http.post("/api/tasks/:id/state", async ({ params, request }) => {
+      const taskId = Number(params.id)
+      const body = (await request.json()) as TaskStateIn
+      taskStateRequests.push({ taskId, body })
+      const task = detail.tasks.find((t) => t.id === taskId)
+      if (task === undefined) return HttpResponse.json({ detail: "Not Found" }, { status: 404 })
+      if (task.state === body.state) return HttpResponse.json(taskDetail(task)) // no-op
+      const entry = makeTaskHistoryEntry({
+        kind: "state_change",
+        actor: HUMAN_ACTOR,
+        body: `human changed state from ${task.state} to ${body.state}`,
+        from_state: task.state,
+        to_state: body.state,
+        reason: body.reason ?? null,
+        created_at: nextCreatedAt(),
+      })
+      taskHistory.set(taskId, [...(taskHistory.get(taskId) ?? []), entry])
+      const tasks = withBlockedBy(
+        detail.tasks.map((t) => (t.id === taskId ? { ...t, state: body.state, updated_at: entry.created_at } : t)),
+      )
+      detail = { ...detail, tasks, updated_at: entry.created_at }
+      return HttpResponse.json(taskDetail(tasks.find((t) => t.id === taskId)!))
+    }),
     http.post(`/api/tickets/${initial.id}/comments`, async ({ request }) => {
       const body = (await request.json()) as CommentIn
       commentRequests.push(body)
@@ -179,6 +291,12 @@ export function statefulTicketDetail(initial: TicketDetail) {
     statusRequests,
     /** Parsed bodies of every `POST .../needs-human-eyes` seen, in order. */
     flagRequests,
+    /** Parsed bodies of every `POST /api/tickets/:id/tasks` seen, in order. */
+    taskRequests,
+    /** Every `POST /api/tasks/:id/state` seen, in order, with the task id it targeted. */
+    taskStateRequests,
+    /** Seeds the history `GET /api/tasks/:id` returns for one of the initial tasks. */
+    seedTaskHistory: (taskId: number, entries: TaskHistoryEntry[]) => taskHistory.set(taskId, entries),
     /** The detail as the "server" currently has it. */
     current: () => detail,
     /**

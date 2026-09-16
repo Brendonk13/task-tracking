@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from ninja import Schema
 from pydantic import Field, field_validator, model_validator
 
-from tracker.models import Priority, TimelineKind
+from tracker.models import FINISHED_TASK_STATES, Priority, TaskHistoryKind, TaskState, TimelineKind
 from tracker.services import actors, tags
 
 
@@ -212,16 +212,132 @@ class TicketListItem(Schema):
         return tags.labels_of(obj)
 
 
+class TaskCreate(Schema):
+    title: str
+    description: str = ""
+    depends_on: list[int] = []
+    actor_session_id: str
+
+    @field_validator("title")
+    @classmethod
+    def title_non_empty(cls, value: str) -> str:
+        return _stripped_non_empty(value)
+
+    @field_validator("depends_on")
+    @classmethod
+    def dedupe_depends_on(cls, value: list[int]) -> list[int]:
+        return sorted(set(value))
+
+
+TASK_PATCH_FIELDS = ("title", "description", "depends_on")
+
+
+class TaskPatch(Schema):
+    """Per-key replace, like ``TicketPatch``. No task field is nullable, so an explicit
+    ``null`` on any of them is rejected."""
+
+    title: str | None = None
+    description: str | None = None
+    depends_on: list[int] | None = None
+    actor_session_id: str
+
+    @field_validator("title")
+    @classmethod
+    def title_non_empty(cls, value: str | None) -> str | None:
+        return value if value is None else _stripped_non_empty(value)
+
+    @field_validator("depends_on")
+    @classmethod
+    def dedupe_depends_on(cls, value: list[int] | None) -> list[int] | None:
+        return value if value is None else sorted(set(value))
+
+    @model_validator(mode="after")
+    def reject_null(self):
+        nulled = [
+            k for k in TASK_PATCH_FIELDS
+            if k in self.model_fields_set and getattr(self, k) is None
+        ]
+        if nulled:
+            raise ValueError(f"{', '.join(nulled)}: null is not allowed")
+        return self
+
+
+class TaskStateIn(Schema):
+    state: TaskState
+    reason: str | None = None
+    actor_session_id: str
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class TaskHistoryEntry(Schema):
+    id: int
+    kind: TaskHistoryKind
+    actor: Actor
+    body: str
+    created_at: datetime
+    from_state: TaskState | None
+    to_state: TaskState | None
+    reason: str | None
+
+    @staticmethod
+    def resolve_actor(obj) -> dict:
+        pre_resolved = getattr(obj, "actor", None)
+        return pre_resolved or actors.actor_view(obj.actor_session_id)
+
+
+class Task(Schema):
+    id: int
+    ticket_id: int
+    title: str
+    description: str
+    state: TaskState
+    depends_on: list[int]
+    blocked_by: list[int]
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def resolve_depends_on(obj) -> list[int]:
+        # Uses the prefetch cache set up by the tasks router.
+        return sorted(dep.id for dep in obj.depends_on.all())
+
+    @staticmethod
+    def resolve_blocked_by(obj) -> list[int]:
+        """The subset of ``depends_on`` that is not yet done or cancelled."""
+        return sorted(
+            dep.id for dep in obj.depends_on.all() if dep.state not in FINISHED_TASK_STATES
+        )
+
+
+class TaskDetail(Task):
+    history: list[TaskHistoryEntry]
+
+    @staticmethod
+    def resolve_history(obj):
+        # Ordered by TaskHistoryEntry.Meta.ordering; uses the prefetch cache when present.
+        return obj.history.all()
+
+
 class TicketDetail(TicketListItem):
     description: str
     parent: TicketRef | None
     children: list[TicketListItem]
+    tasks: list[Task]
     timeline: list[TimelineEntry]
 
     @staticmethod
     def resolve_children(obj):
         # Oldest first; uses the prefetch cache set up by the tickets router.
         return obj.children.all()
+
+    @staticmethod
+    def resolve_tasks(obj):
+        # Oldest first; uses the prefetch cache set up by the tickets router.
+        return obj.tasks.all()
 
     @staticmethod
     def resolve_timeline(obj):

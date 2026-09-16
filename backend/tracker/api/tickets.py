@@ -8,7 +8,8 @@ from ninja.errors import HttpError
 from ninja.responses import Status
 
 from tracker import models, schemas
-from tracker.services import actors, tags
+from tracker.services import actors, changes, tags
+from tracker.services import tasks as task_service
 
 router = Router(tags=["tickets"])
 
@@ -43,6 +44,7 @@ def _detail(ticket_id: int) -> models.Ticket:
         _tickets().select_related("parent").prefetch_related(
             Prefetch("timeline", queryset=models.TimelineEntry.objects.order_by("created_at", "id")),
             Prefetch("children", queryset=_tickets().order_by("created_at", "id")),
+            Prefetch("tasks", queryset=task_service.queryset().order_by("created_at", "id")),
         ),
         id=ticket_id,
     )
@@ -100,21 +102,6 @@ def create_ticket(request, payload: schemas.TicketCreate):
     return Status(201, _detail(ticket.id))
 
 
-def _render(value) -> str:
-    """A5: null/empty renders as ``(none)``; lists comma-joined and sorted."""
-    if value is None or value == "" or value == []:
-        return "(none)"
-    if isinstance(value, list):
-        return ", ".join(sorted(value))
-    return str(value)
-
-
-def _field_change_body(actor_name: str, field: str, old, new) -> str:
-    if field == "description":
-        return f"{actor_name} changed description"
-    return f"{actor_name} changed {field} from {_render(old)} to {_render(new)}"
-
-
 @router.get("/summary", response=schemas.TicketsSummary)
 def tickets_summary(request):
     return {
@@ -154,7 +141,7 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
             ticket,
             models.TimelineKind.FIELD_CHANGE,
             payload.actor_session_id,
-            _field_change_body(actor["name"], field, old, new),
+            changes.field_change_body(actor["name"], field, old, new),
         )
 
     if changed_fields:
@@ -248,3 +235,22 @@ def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEye
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)
 def get_ticket(request, ticket_id: int):
     return _detail(ticket_id)
+
+
+@router.get("/{int:ticket_id}/tasks", response=List[schemas.Task])
+def list_tasks(request, ticket_id: int):
+    """A ticket's tasks, oldest first; the same rows as ``TicketDetail.tasks``."""
+    ticket = get_object_or_404(models.Ticket.objects.only("id"), id=ticket_id)
+    return task_service.queryset().filter(ticket=ticket).order_by("created_at", "id")
+
+
+@router.post("/{int:ticket_id}/tasks", response={201: schemas.TaskDetail})
+def create_task(request, ticket_id: int, payload: schemas.TaskCreate):
+    ticket, _actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
+    depends_on = task_service.validated_depends_on(ticket.id, payload.depends_on)
+    task = models.Task.objects.create(
+        ticket=ticket, title=payload.title, description=payload.description
+    )
+    task.depends_on.set(depends_on)
+    ticket.save()  # A8: a new task is ticket activity
+    return Status(201, task_service.detail(task.id))

@@ -27,6 +27,9 @@ def register_session(request, session_id: str, payload: schemas.SessionIn):
     """Idempotent upsert (A10). ``name`` is generated once, on first registration."""
     if session_id == actors.HUMAN:
         raise HttpError(422, f"session_id {actors.HUMAN!r} is reserved")
+    if payload.ticket_id is not None:
+        if not models.Ticket.objects.filter(id=payload.ticket_id).exists():
+            raise HttpError(400, "unknown ticket")
     for attempt in range(MAX_CREATE_ATTEMPTS):
         try:
             with transaction.atomic():

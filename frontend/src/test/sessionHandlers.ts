@@ -18,6 +18,7 @@ export function makeSession(overrides: Partial<Session> = {}): Session {
     directory: `/home/dev/project-${n}`,
     last_message: null,
     last_message_at: null,
+    ticket_id: null,
     created_at: "2026-09-12T10:00:00Z",
     ...overrides,
   }

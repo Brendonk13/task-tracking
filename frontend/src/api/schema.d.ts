@@ -381,6 +381,8 @@ export interface components {
             last_message: string | null;
             /** Last Message At */
             last_message_at: string | null;
+            /** Ticket Id */
+            ticket_id: number | null;
             /**
              * Created At
              * Format: date-time
@@ -395,6 +397,8 @@ export interface components {
             last_message?: string | null;
             /** Last Message At */
             last_message_at?: string | null;
+            /** Ticket Id */
+            ticket_id?: number | null;
         };
         /** StatusItem */
         StatusItem: {

@@ -162,3 +162,76 @@ def test_reserved_session_id_human_is_rejected(client):
 
     assert listing.status_code == 200
     assert listing.json() == []
+
+
+# --- The ticket a session is working on (optional, reported by the session itself) ---
+
+SID = "1b8e4d60-7c39-4f21-a5d8-2e6b0f94c317"
+
+
+def make_ticket(client, title: str = "Fix login") -> int:
+    response = client.post("/tickets", json={"title": title, "actor_session_id": "human"})
+    assert response.status_code == 201, response.content
+    return response.json()["id"]
+
+
+def test_session_has_no_ticket_by_default(client):
+    response = client.put(f"/sessions/{SID}", json={"directory": "/home/me/proj"})
+
+    assert response.json()["ticket_id"] is None
+
+
+def test_put_stores_the_ticket_the_session_is_working_on(client):
+    ticket_id = make_ticket(client)
+
+    response = client.put(
+        f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": ticket_id}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ticket_id"] == ticket_id
+    assert client.get("/sessions").json()[0]["ticket_id"] == ticket_id
+
+
+def test_a_later_put_that_omits_ticket_id_keeps_it(client):
+    ticket_id = make_ticket(client)
+    client.put(f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": ticket_id})
+
+    response = client.put(
+        f"/sessions/{SID}", json={"directory": "/home/me/proj", "last_message": "keep going"}
+    )
+
+    assert response.json()["ticket_id"] == ticket_id
+
+
+def test_an_explicit_null_clears_the_ticket(client):
+    ticket_id = make_ticket(client)
+    client.put(f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": ticket_id})
+
+    response = client.put(
+        f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": None}
+    )
+
+    assert response.json()["ticket_id"] is None
+
+
+def test_a_session_can_move_to_another_ticket(client):
+    first = make_ticket(client, "First")
+    second = make_ticket(client, "Second")
+    client.put(f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": first})
+
+    response = client.put(
+        f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": second}
+    )
+
+    assert response.json()["ticket_id"] == second
+
+
+def test_unknown_ticket_id_is_rejected_with_400(client):
+    response = client.put(
+        f"/sessions/{SID}", json={"directory": "/home/me/proj", "ticket_id": 9999}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "unknown ticket"}
+    assert client.get("/sessions").json() == []

@@ -7,6 +7,10 @@ class Session(models.Model):
     directory = models.TextField()
     last_message = models.TextField(null=True, blank=True)
     last_message_at = models.DateTimeField(null=True, blank=True)
+    # The ticket this session is working on, as the session last reported it.
+    ticket = models.ForeignKey(
+        "Ticket", null=True, blank=True, on_delete=models.SET_NULL, related_name="sessions"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
 

@@ -11,6 +11,7 @@ class SessionIn(Schema):
     directory: str
     last_message: str | None = None
     last_message_at: datetime | None = None
+    ticket_id: int | None = None
 
     @field_validator("last_message_at")
     @classmethod
@@ -27,6 +28,7 @@ class Session(Schema):
     directory: str
     last_message: str | None
     last_message_at: datetime | None
+    ticket_id: int | None
     created_at: datetime
 
 

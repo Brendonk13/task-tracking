@@ -66,6 +66,8 @@ The flow a Claude Code session follows:
    are kept; an explicit `null` clears `last_message` or `last_message_at`. `directory`
    is required every time. The UI builds the resume command
    `cd <directory> && claude --resume <session_id>` from these fields, so keep them accurate.
+   Once you know which ticket you are on, PUT again with `ticket_id` so the sessions page
+   shows what you are working on.
 2. **Create a ticket, or find one.** `POST /api/tickets` returns `201` with the new ticket
    and its `id`. `GET /api/tickets` lists existing tickets. When you break work down, pass
    `parent_id` to create the pieces as sub-tickets of the ticket you were given (see
@@ -105,6 +107,9 @@ curl -s -X PUT $API/sessions/$SID -H 'Content-Type: application/json' \
 TID=$(curl -s -X POST $API/tickets -H 'Content-Type: application/json' \
   -d "{\"title\":\"Fix login redirect\",\"priority\":\"high\",\"actor_session_id\":\"$SID\"}" | jq .id)
 
+curl -s -X PUT $API/sessions/$SID -H 'Content-Type: application/json' \
+  -d "{\"directory\":\"/home/me/code/avantos\",\"ticket_id\":$TID}"
+
 curl -s -X POST $API/tickets/$TID/status -H 'Content-Type: application/json' \
   -d "{\"status\":\"blocked\",\"reason\":\"Need the staging credentials\",\"actor_session_id\":\"$SID\"}"
 
@@ -125,8 +130,14 @@ were run against a fresh database; ids, names, and timestamps will differ for yo
 #### `PUT /api/sessions/{session_id}`
 
 Register or update a session. Body: `directory` (required), `last_message`,
-`last_message_at` (both optional, nullable). Returns `200` with the `Session`. The
-path id `human` is reserved for the UI actor and is rejected with `422`.
+`last_message_at`, `ticket_id` (all optional, nullable). Returns `200` with the `Session`.
+The path id `human` is reserved for the UI actor and is rejected with `422`.
+
+`ticket_id` is the ticket the session is working on, as the session itself last reported
+it. It is advisory, not a claim: nothing stops two sessions from naming the same ticket.
+An id that names no ticket is rejected with `400 {"detail": "unknown ticket"}`. Like the
+other optional keys, omitting it keeps the stored value and an explicit `null` clears it.
+The sessions page links to the ticket from each row.
 
 ```bash
 curl -s -X PUT http://localhost:8000/api/sessions/0f2c7e1a-3b4d-4c5e-9f60-7a8b9c0d1e2f \
@@ -141,6 +152,7 @@ curl -s -X PUT http://localhost:8000/api/sessions/0f2c7e1a-3b4d-4c5e-9f60-7a8b9c
   "directory": "/home/me/code/avantos",
   "last_message": "Fix the login redirect bug",
   "last_message_at": "2026-09-12T10:00:00Z",
+  "ticket_id": null,
   "created_at": "2026-09-13T04:21:36.822Z"
 }
 ```
@@ -181,6 +193,7 @@ curl -s http://localhost:8000/api/sessions
     "directory": "/home/me/code/avantos",
     "last_message": "now run the linter",
     "last_message_at": "2026-09-12T10:00:00Z",
+    "ticket_id": 1,
     "created_at": "2026-09-13T04:21:36.822Z"
   },
   {
@@ -189,6 +202,7 @@ curl -s http://localhost:8000/api/sessions
     "directory": "/home/me/code/other",
     "last_message": null,
     "last_message_at": null,
+    "ticket_id": null,
     "created_at": "2026-09-13T04:21:36.828Z"
   }
 ]

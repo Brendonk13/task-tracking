@@ -142,4 +142,26 @@ describe("SessionsPage", () => {
 
     expect(await navigator.clipboard.readText()).toBe("cd /home/dev/docs && claude --resume sess-2")
   })
+
+  // The ticket a session reported it is working on. It is optional, so a session with
+  // ticket_id null shows nothing in the Ticket column.
+  it("links to the ticket a session is working on", async () => {
+    server.use(
+      sessionsHandler([
+        makeSession({ session_id: "sess-1", name: "cool-willow", ticket_id: 7 }),
+        makeSession({ session_id: "sess-2", name: "quiet-otter", ticket_id: null }),
+      ]),
+    )
+    renderWithProviders(<SessionsPage />)
+
+    await screen.findByText("quiet-otter")
+
+    const willowRow = screen.getByRole("row", { name: /cool-willow/i })
+    expect(within(willowRow).getByRole("link", { name: "#7" })).toHaveAttribute(
+      "href",
+      "/tickets/7",
+    )
+    const otterRow = screen.getByRole("row", { name: /quiet-otter/i })
+    expect(within(otterRow).queryByRole("link")).not.toBeInTheDocument()
+  })
 })

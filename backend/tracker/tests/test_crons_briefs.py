@@ -545,3 +545,70 @@ def test_claude_is_launched_with_nested_session_env_removed(
         assert "CLAUDECODE" not in env, sorted(env)
         assert "CLAUDE_CODE_ENTRYPOINT" not in env, sorted(env)
         assert env.get("TASK_TRACKING_ENV_PROBE") == "inherited", sorted(env)
+
+
+def test_brief_endpoint_is_404_without_a_brief_or_when_the_file_is_gone(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """Nothing to serve is a 404, in all three ways there can be nothing (§4 C2.10).
+
+    ``GET /tickets/{id}/brief`` is the only endpoint whose answer lives outside the
+    database, so "is there a brief?" is two questions, not one. A ticket nobody has
+    heard of and a ticket that simply has not been briefed yet are the easy pair. The
+    third is the one that bites: a brief row can outlive the HTML it points at —
+    ``BRIEFS_DIR`` is an ordinary directory a human can tidy, and the file can also be
+    lost to a machine move or a wiped tmp dir — and from the reader's side that is the
+    same situation as never having been briefed, not a fault in the tracker. So the
+    stale row must read as gone rather than blow up as a 500, which would page somebody
+    over a deleted file. That case is built the only honest way: a real successful brief
+    run, exactly as in C2.4, and then the HTML deleted behind the tracker's back.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+
+    briefs_dir = Path(cron_settings.BRIEFS_DIR)
+    md_path = briefs_dir / "2026-09-17-CON-7.md"
+    html_path = briefs_dir / "2026-09-17-CON-7.html"
+
+    envelope = fakes.fixture_json("claude/ticket_brief_ok.json")
+    structured = dict(envelope["structured_output"])
+    structured["md_path"] = str(md_path)
+    structured["html_path"] = str(html_path)
+    envelope["structured_output"] = structured
+    envelope["result"] = json.dumps(structured)
+
+    def write_the_brief(call) -> None:
+        """Write the brief the way the skill does: one dated pair per identifier."""
+        identifier = (call.arg_after("-p") or " ").split()[1]
+        (briefs_dir / f"2026-09-17-{identifier}.md").write_text(f"# {identifier}\n")
+        (briefs_dir / f"2026-09-17-{identifier}.html").write_text(
+            f"<!doctype html><html><body><h1>{identifier}</h1></body></html>"
+        )
+
+    fake_processes.on("claude", stdout=json.dumps(envelope), side_effect=write_the_brief)
+
+    run_cron(client)
+
+    # A ticket created by hand after the run: real, but never briefed.
+    unbriefed = client.post(
+        "/tickets", json={"title": "Fix login", "actor_session_id": "human"}
+    ).json()
+    assert client.get(f"/tickets/{unbriefed['id']}").json()["brief"] is None
+    assert client.get(f"/tickets/{unbriefed['id']}/brief").status_code == 404
+
+    unknown_id = max(ticket["id"] for ticket in client.get("/tickets").json()) + 1000
+    assert client.get(f"/tickets/{unknown_id}").status_code == 404, "id is not unknown"
+    assert client.get(f"/tickets/{unknown_id}/brief").status_code == 404
+
+    con7 = next(
+        ticket
+        for ticket in client.get("/tickets").json()
+        if ticket["linear_identifier"] == "CON-7"
+    )
+    stored = client.get(f"/tickets/{con7['id']}").json()["brief"]
+    assert stored, "the run stored no brief, so there is no file to delete"
+    assert client.get(f"/tickets/{con7['id']}/brief").status_code == 200
+
+    Path(stored["html_path"]).unlink()
+
+    gone = client.get(f"/tickets/{con7['id']}/brief")
+    assert gone.status_code == 404, gone.content

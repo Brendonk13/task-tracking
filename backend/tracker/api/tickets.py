@@ -246,11 +246,19 @@ def get_brief(request, ticket_id: int):
     This is the only endpoint that answers with a file rather than JSON: the brief is
     a page a human opens in a browser, so it is kept out of the OpenAPI document and
     out of the generated frontend client, which describe the JSON contract alone.
+
+    Because the document lives outside the database, the row can outlive the file it
+    points at: ``BRIEFS_DIR`` is an ordinary directory that a human, a machine move or
+    a wiped tmp dir can empty. A brief row with no HTML behind it is a missing
+    document, the same as never having been briefed, so it answers 404 rather than
+    raising and paging somebody over a deleted file.
     """
     brief = get_object_or_404(models.TicketBrief, ticket_id=ticket_id)
-    return HttpResponse(
-        Path(brief.html_path).read_bytes(), content_type="text/html; charset=utf-8"
-    )
+    try:
+        html = Path(brief.html_path).read_bytes()
+    except OSError:
+        raise HttpError(404, "no brief for this ticket")
+    return HttpResponse(html, content_type="text/html; charset=utf-8")
 
 
 @router.get("/{int:ticket_id}/tasks", response=List[schemas.Task])

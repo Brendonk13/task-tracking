@@ -461,6 +461,10 @@ class PullRequestItem(Schema):
     # How much has been said on the PR across GitHub's three comment feeds; annotated
     # by the router so a listing stays one query.
     comment_count: int = 0
+    # The session that last triaged this PR's comments, as the whole actor rather than
+    # an id: the PR row names it and offers to resume its transcript (A1). Null until
+    # one has triaged it.
+    last_triage_session: Actor | None = None
 
 
 class PullRequestPatch(Schema):

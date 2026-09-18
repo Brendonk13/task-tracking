@@ -20,6 +20,11 @@ from tracker import models
 from tracker.integrations.claude_runner import ClaudeRequest, ClaudeResult, ClaudeRunner
 from tracker.services import sessions
 from tracker.services import tasks as task_service
+from tracker.services import tickets as ticket_service
+
+BLOCKED_STATUS = "blocked"
+"""Where a triaged ticket lands: every task on it is behind a gate only a human can
+open, so the work genuinely cannot proceed."""
 
 OPEN = "open"
 """The state of a pull request still in flight, as a ``PullRequest`` row stores it."""
@@ -418,6 +423,66 @@ def create_tasks(
     return created
 
 
+def block_reason(pull_request: models.PullRequest, analysis: TriageAnalysis) -> str:
+    """Why this ticket stopped, in the one sentence the timeline shows.
+
+    A ``blocked`` with no reason leaves whoever opens the ticket to guess which of its
+    pull requests stalled it, so the number is named, and with it how much was judged
+    and what is now owed: a human's agreement.
+    """
+    return (
+        f"PR #{pull_request.number}: {len(analysis.items)} review comments triaged, "
+        f"awaiting human review"
+    )
+
+
+def hand_to_a_human(
+    pull_request: models.PullRequest,
+    session: models.Session,
+    analysis: TriageAnalysis,
+) -> None:
+    """Stop the ticket, flag it and raise the alert that finds somebody not looking at it.
+
+    A triage finishes nothing: every task it made is behind the gate and every reply it
+    drafted is text nobody has sent. A ticket left as it was would look like ordinary
+    work and be stalled, so it is blocked — the status says the work cannot proceed —
+    and flagged, which is what puts it on the badge and the filter a person watches.
+    Both writes are made as the triage session rather than as ``cron``, so the timeline
+    points at the transcript that decided this, which is the only way to check it.
+
+    The alert is the third signal and the only one that reaches a person who is not
+    already on the ticket, so it carries all three links at once: the ticket holds the
+    tasks and the gate, the pull request is the conversation being answered, and the
+    session is what produced the judgements.
+
+    Finally the pull request remembers the session that triaged it, which is how a
+    person reading the PR row gets back to that run without going through the ticket.
+    """
+    pull_request.last_triage_session = session
+    pull_request.save(update_fields=["last_triage_session"])
+    ticket = pull_request.ticket
+    if ticket is None:
+        return
+    reason = block_reason(pull_request, analysis)
+    ticket_service.change_status(
+        ticket, BLOCKED_STATUS, session.session_id, session.name, reason=reason
+    )
+    ticket_service.set_needs_human_eyes(
+        ticket, True, session.session_id, session.name, reason=reason
+    )
+    models.Alert.objects.create(
+        kind=models.AlertKind.PR_TRIAGED,
+        ticket=ticket,
+        pull_request=pull_request,
+        session=session,
+        cron_run=session.cron_run,
+        message=(
+            f"PR #{pull_request.number} triaged: {len(analysis.items)} comments judged, "
+            f"waiting on a human review"
+        ),
+    )
+
+
 def triage_dir() -> Path:
     """The directory triage analyses are written into, created if it is not there yet.
 
@@ -563,5 +628,6 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
         analysis = read_analysis(session, result)
         if analysis is not None:
             create_tasks(pull_request, session, analysis)
+            hand_to_a_human(pull_request, session, analysis)
         started.append(session)
     return started

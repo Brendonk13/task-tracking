@@ -12,6 +12,7 @@ from ninja.responses import Status
 from tracker import models, schemas
 from tracker.services import actors, changes, tags
 from tracker.services import tasks as task_service
+from tracker.services import tickets as ticket_service
 
 router = Router(tags=["tickets"])
 
@@ -81,19 +82,6 @@ def _ticket_and_actor(ticket_id: int, actor_session_id: str) -> tuple[models.Tic
     return ticket, actors.require_actor(actor_session_id)
 
 
-def _record(
-    ticket: models.Ticket,
-    kind: models.TimelineKind,
-    actor_session_id: str,
-    body: str,
-    **fields,
-) -> models.TimelineEntry:
-    """Append one timeline entry to the ticket."""
-    return models.TimelineEntry.objects.create(
-        ticket=ticket, kind=kind, actor_session_id=actor_session_id, body=body, **fields
-    )
-
-
 @router.post("", response={201: schemas.TicketDetail})
 def create_ticket(request, payload: schemas.TicketCreate):
     actors.require_actor(payload.actor_session_id)
@@ -140,7 +128,7 @@ def patch_ticket(request, ticket_id: int, payload: schemas.TicketPatch):
         current[field] = new
         if field not in ("project", "labels"):
             setattr(ticket, field, new)
-        _record(
+        ticket_service.record(
             ticket,
             models.TimelineKind.FIELD_CHANGE,
             payload.actor_session_id,
@@ -187,24 +175,8 @@ def list_tickets(
 @router.post("/{int:ticket_id}/status", response=schemas.TicketDetail)
 def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
     ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
-    from_status = ticket.status.name if ticket.status else None
-    if from_status == payload.status:
-        return _detail(ticket.id)  # B3.7 no-op: same status, nothing written
-    status, _created = models.Status.objects.get_or_create(name=payload.status)
-    ticket.status = status
-    ticket.save()
-    if from_status is None:
-        body = f"{actor['name']} set status to {status.name}"
-    else:
-        body = f"{actor['name']} changed status from {from_status} to {status.name}"
-    _record(
-        ticket,
-        models.TimelineKind.STATUS_CHANGE,
-        payload.actor_session_id,
-        body,
-        from_status=from_status,
-        to_status=status.name,
-        reason=payload.reason,
+    ticket_service.change_status(
+        ticket, payload.status, payload.actor_session_id, actor["name"], payload.reason
     )
     return _detail(ticket.id)
 
@@ -212,7 +184,9 @@ def set_status(request, ticket_id: int, payload: schemas.StatusChangeIn):
 @router.post("/{int:ticket_id}/comments", response=schemas.TicketDetail)
 def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
     ticket, _actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
-    _record(ticket, models.TimelineKind.COMMENT, payload.actor_session_id, payload.body)
+    ticket_service.record(
+        ticket, models.TimelineKind.COMMENT, payload.actor_session_id, payload.body
+    )
     ticket.save()  # A8: comments count as activity
     return _detail(ticket.id)
 
@@ -220,17 +194,8 @@ def add_comment(request, ticket_id: int, payload: schemas.CommentIn):
 @router.post("/{int:ticket_id}/needs-human-eyes", response=schemas.TicketDetail)
 def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEyesIn):
     ticket, actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
-    if ticket.needs_human_eyes == payload.value:
-        return _detail(ticket.id)  # A6 no-op: same value, nothing written
-    ticket.needs_human_eyes = payload.value
-    ticket.save()
-    verb = "flagged" if payload.value else "cleared"
-    _record(
-        ticket,
-        models.TimelineKind.FLAG_CHANGE,
-        payload.actor_session_id,
-        f"{actor['name']} {verb} needs human eyes",
-        reason=payload.reason,
+    ticket_service.set_needs_human_eyes(
+        ticket, payload.value, payload.actor_session_id, actor["name"], payload.reason
     )
     return _detail(ticket.id)
 

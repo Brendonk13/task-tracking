@@ -615,9 +615,12 @@ def test_code_change_items_become_tasks_blocked_by_a_human_review_gate_task(
     assert gate["title"] == f"Human review of PR comment triage for PR #{number}"
     assert gate["depends_on"] == []
 
+    # An item that is both a code change and a drafted reply is named by two tasks: its
+    # own, and the collected replies task (C4.6). Only its own is under test here.
+    own_tasks = [task for task in tasks[1:] if not task["title"].startswith("Post replies")]
     for item in code_change_items:
-        matching = [task for task in tasks[1:] if item["url"] in (task["description"] or "")]
-        assert len(matching) == 1, (item["url"], tasks[1:])
+        matching = [task for task in own_tasks if item["url"] in (task["description"] or "")]
+        assert len(matching) == 1, (item["url"], own_tasks)
         task = matching[0]
         description = task["description"]
         assert item["comment"] in description, description
@@ -634,7 +637,7 @@ def test_code_change_items_become_tasks_blocked_by_a_human_review_gate_task(
     assert session_id in sessions, sessions
 
     first_item_task = next(
-        task for task in tasks[1:] if code_change_items[0]["url"] in (task["description"] or "")
+        task for task in own_tasks if code_change_items[0]["url"] in (task["description"] or "")
     )
     history = client.get(f"/tasks/{first_item_task['id']}").json()["history"]
     assert history, first_item_task

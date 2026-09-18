@@ -245,6 +245,16 @@ class TriageAnalysis:
         """
         return [item for item in self.items if item.needs_code_change]
 
+    @property
+    def reply_items(self) -> list[TriageItem]:
+        """The judgements that came back with a reply already written.
+
+        An item needing a code change can owe a reply too, so this is not the complement
+        of ``code_change_items``: it is every draft the run produced, and a draft is the
+        only thing here a person could send to a reviewer as themselves.
+        """
+        return [item for item in self.items if item.suggested_comment]
+
 
 def parse_analysis(payload) -> TriageAnalysis | None:
     """Read one analysis object into something typed, or ``None`` if it is not one.
@@ -324,6 +334,31 @@ def item_description(item: TriageItem) -> str:
     return "\n".join(lines)
 
 
+def replies_title(items: list[TriageItem]) -> str:
+    """Name the one task that carries every drafted reply.
+
+    The count is of the drafts actually held, not of the items the triage judged, because
+    that number is what makes the task legible on a ticket page without opening it.
+    """
+    return f"Post replies to {len(items)} PR comments"
+
+
+def replies_description(items: list[TriageItem]) -> str:
+    """Every draft, each under the comment it answers.
+
+    A reply has to be posted beneath the thread it belongs to, and the url is the only
+    thing that says which one — a batch of unattributed paragraphs would have to be
+    matched back to threads by hand, which is the work this task has already done.
+    """
+    lines: list[str] = []
+    for item in items:
+        if lines:
+            lines.append("")
+        lines.append(item.url)
+        lines += [f"> {line}" for line in item.suggested_comment.splitlines()]
+    return "\n".join(lines)
+
+
 def create_tasks(
     pull_request: models.PullRequest,
     session: models.Session,
@@ -359,6 +394,16 @@ def create_tasks(
                 ticket,
                 title=item_title(item),
                 description=item_description(item),
+                depends_on=[gate.id],
+            )
+        )
+    reply_items = analysis.reply_items
+    if reply_items:
+        created.append(
+            task_service.create(
+                ticket,
+                title=replies_title(reply_items),
+                description=replies_description(reply_items),
                 depends_on=[gate.id],
             )
         )

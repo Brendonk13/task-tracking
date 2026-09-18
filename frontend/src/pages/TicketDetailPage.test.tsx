@@ -410,6 +410,39 @@ describe("TicketDetailPage", () => {
     expect(screen.queryByRole("link", { name: /linear/i })).toBeNull()
   })
 
+  // Brief convention: when the ticket has a `brief`, the header shows an anchor beside the
+  // Linear link whose accessible name matches /brief/i (suggested text "Open brief"), with
+  // href="/api/tickets/{id}/brief" and target="_blank" so the HTML opens in a new tab. A
+  // ticket with `brief: null` renders no such link.
+  it("shows an open-brief link to /api/tickets/{id}/brief when the ticket has a brief and nothing otherwise", async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Fix login",
+          brief: {
+            md_path: "/home/dev/ticket-briefs/2026-09-17-CON-7.md",
+            html_path: "/home/dev/ticket-briefs/2026-09-17-CON-7.html",
+          },
+        }),
+      ),
+      ticketDetailHandler(makeTicketDetail({ id: 8, title: "Write docs", brief: null })),
+    )
+
+    const withBrief = renderDetail(7)
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+
+    const link = screen.getByRole("link", { name: /brief/i })
+    expect(link).toHaveAttribute("href", "/api/tickets/7/brief")
+    expect(link).toHaveAttribute("target", "_blank")
+
+    withBrief.unmount()
+
+    renderDetail(8)
+    await screen.findByRole("heading", { level: 1, name: "Write docs" })
+    expect(screen.queryByRole("link", { name: /brief/i })).toBeNull()
+  })
+
   // ---- Reviewer pins (end of F3/F4) ----
 
   it("flagging needs human eyes from the detail page updates the sidebar badge", async () => {

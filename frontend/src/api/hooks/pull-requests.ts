@@ -6,9 +6,10 @@ export type PullRequest = components["schemas"]["PullRequestItem"]
 
 export const pullRequestsQueryKey = ["pull-requests", "list"] as const
 
-export function usePullRequests() {
+export function usePullRequests({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: pullRequestsQueryKey,
+    enabled,
     queryFn: async (): Promise<PullRequest[]> => {
       return unwrap(await api.GET("/api/pull-requests"), "Failed to load pull requests")
     },

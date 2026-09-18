@@ -299,6 +299,14 @@ def refresh_closed_prs(client, repo: str, still_open: list[int]) -> list[models.
     return refreshed
 
 
+# What each step deals in, one row per step, for the line the header shows about a run.
+STEP_NOUNS = {
+    IMPORT_TICKETS: "ticket",
+    WRITE_BRIEFS: "brief",
+    IMPORT_PRS: "pull request",
+    TRIAGE_PRS: "triage",
+}
+
 # Each step of the pass, in the order it runs.
 STEPS = {
     IMPORT_TICKETS: check_new_tickets,
@@ -312,6 +320,15 @@ STEPS = {
 }
 
 
+def counted(count: int, noun: str) -> str:
+    """``count`` of ``noun``, worded the way a person would say it.
+
+    The summary is read as a sentence, so "1 tickets" would read as a bug in this app
+    rather than as a quiet pass.
+    """
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
 def execute(run: models.CronRun) -> models.CronRun:
     """Do the run's work, then close it out.
 
@@ -320,18 +337,28 @@ def execute(run: models.CronRun) -> models.CronRun:
     raises is isolated the same way: the failure becomes an alert and the next step still
     gets its turn. The run itself is recorded either way, which is what makes a "nothing
     to do" cron distinguishable from one that never started.
+
+    Each step that ran says how much it dealt with, and those counts become the run's
+    ``summary`` — the one line the header shows for the last run, so it has to answer
+    "what did that pass do?" without opening anything. A step that was skipped or that
+    failed is left out of it: it dealt with nothing, and the alert it already wrote is
+    where its reason belongs.
     """
+    dealt_with = []
     for step, do_step in STEPS.items():
         missing = missing_settings(step)
         if missing:
             skip_step(run, step, missing)
             continue
         try:
-            do_step(run)
+            done = do_step(run)
         except Exception as error:  # any failure here belongs to this step, not the run
             fail_step(run, step, error)
+        else:
+            dealt_with.append(counted(len(done), STEP_NOUNS[step]))
 
     run.status = models.CronRunStatus.FINISHED
+    run.summary = ", ".join(dealt_with)
     run.finished_at = timezone.now()
     run.save()
     return run

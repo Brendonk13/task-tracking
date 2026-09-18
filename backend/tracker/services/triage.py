@@ -33,6 +33,93 @@ there."""
 TRIAGE_DIR_NAME = "triage"
 """The folder under ``CRON_WORK_DIR`` that holds one analysis per triage run."""
 
+TRIAGE_ALLOWED_TOOLS = (
+    "Read",
+    "Glob",
+    "Grep",
+    "Agent",
+    "Skill",
+    "Write",
+    "Bash(python3:*)",
+    "Bash(gh pr view:*)",
+    "Bash(gh pr diff:*)",
+    "Bash(gh repo view:*)",
+    "Bash(gh api:*)",
+    "Bash(git fetch:*)",
+    "Bash(git show:*)",
+    "Bash(git log:*)",
+    "Bash(git diff:*)",
+    "Bash(git rev-parse:*)",
+    "Bash(rg:*)",
+    "Bash(grep:*)",
+    "Bash(ls:*)",
+)
+"""Everything a triage run is allowed to touch.
+
+The job is to read: the pull request, the feeds behind it and the code it talks about.
+``gh api`` is opened as a whole because the comment feeds are plain GETs against paths
+this app does not enumerate, and the deny list below is what keeps it a read.
+``git fetch`` and ``git show`` are here because the checkout is very likely parked on
+another branch, so the PR's own code can only be read out of the fetched ref rather than
+the working tree. ``Write`` stays, and only for the analysis JSON the run is asked for.
+"""
+
+TRIAGE_DISALLOWED_TOOLS = (
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(gh pr close:*)",
+    "Bash(gh api -X:*)",
+    "Bash(gh api --method:*)",
+    "Bash(gh api graphql:*)",
+    "Bash(gh api -f:*)",
+    "Bash(gh api -F:*)",
+    "Bash(gh api --input:*)",
+    "Bash(git commit:*)",
+    "Bash(git push:*)",
+    "Bash(git checkout:*)",
+    "Bash(git switch:*)",
+    "Bash(git stash:*)",
+    "Bash(git rebase:*)",
+    "Bash(git reset:*)",
+    "mcp__claude_ai_Linear__create_*",
+    "mcp__claude_ai_Linear__update_*",
+    "mcp__claude_ai_Linear__delete_*",
+    "mcp__claude_ai_Linear__save_*",
+)
+"""Every way a triage run could answer a reviewer or disturb the checkout.
+
+The run is unattended under ``--permission-prompts none``, which denies silently, so an
+omission here is not a question to a human — it is permission. Two hazards are being
+closed. Posting: the skill's whole subject is review comments, and a reply left on a PR
+in the user's name cannot be recalled, so ``gh pr comment``/``review`` are shut and with
+them the forms in which ``gh api`` stops being a read — a verb via ``-X``/``--method``, a
+mutation in a ``graphql`` body, fields via ``-f``/``-F``/``--input``. The working tree:
+the run may know exactly which line to change, but that change belongs in a task behind
+the human gate, so it can neither edit the code it reads nor commit, push or move the
+branch a person is standing on. The list is named rather than inlined so a reader can
+audit it against §6 at a glance.
+"""
+
+TRIAGE_SYSTEM_PROMPT = (
+    "Automated run from task-tracking. READ-ONLY on GitHub and Linear: never post a "
+    "comment or a review, never create, update or archive anything. "
+    "The checkout may not be on the PR branch: git fetch origin <branch> and read with "
+    "git show origin/<branch>:<path> or gh pr diff. "
+    "Never run a full test suite."
+)
+"""The same rules as the deny list, in words the model itself reads.
+
+Tools are a fence, not an instruction, and a model that knows why the fence is there
+stops walking into it. The two things the deny list cannot say are said here: which
+commands to read the PR's code with, since a blocked ``git checkout`` otherwise reads as
+a dead end rather than a redirection, and that a full test suite is not part of a
+triage — it is not dangerous, only slow enough to burn the run's whole budget.
+"""
+
 TRIAGE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -241,6 +328,9 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
                 timeout=settings.CLAUDE_SESSION_TIMEOUT_SECONDS,
                 add_dirs=(str(triage_dir()), TRIAGE_SCRATCH_DIR),
                 json_schema=TRIAGE_SCHEMA,
+                allowed_tools=TRIAGE_ALLOWED_TOOLS,
+                disallowed_tools=TRIAGE_DISALLOWED_TOOLS,
+                append_system_prompt=TRIAGE_SYSTEM_PROMPT,
                 max_budget_usd=settings.CLAUDE_MAX_BUDGET_USD,
             )
         )

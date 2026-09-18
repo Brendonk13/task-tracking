@@ -261,6 +261,19 @@ class TriageAnalysis:
         """
         return [item for item in self.items if item.suggested_comment]
 
+    @property
+    def needs_a_human(self) -> bool:
+        """Whether this triage found anything a person has to look at.
+
+        An analysis with no items is an answer, not a failed run: judging whether the
+        comments on a pull request need anything is the session's whole job, and
+        "nothing here does" is one of the conclusions it is asked for. Treating it as
+        work would cost the ticket the three signals that mean a person is needed —
+        the block, the flag and the alert — every time the cron asked about a quiet PR,
+        until none of them meant anything.
+        """
+        return bool(self.items)
+
 
 def parse_analysis(payload) -> TriageAnalysis | None:
     """Read one analysis object into something typed, or ``None`` if it is not one.
@@ -645,8 +658,11 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
         )
         analysis = read_analysis(session, result)
         if analysis is not None:
-            create_tasks(pull_request, session, analysis)
-            hand_to_a_human(pull_request, session, analysis)
+            if analysis.needs_a_human:
+                create_tasks(pull_request, session, analysis)
+                hand_to_a_human(pull_request, session, analysis)
+            # Judged either way: the comments had their turn, and leaving them pending
+            # would hand the same unchanged feed to the next run forever.
             mark_triaged(pending, session)
         started.append(session)
     return started

@@ -271,6 +271,68 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
+        migrations.CreateModel(
+            name="PRComment",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("review_comment", "Review Comment"),
+                            ("issue_comment", "Issue Comment"),
+                            ("review", "Review"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                ("github_id", models.BigIntegerField()),
+                ("in_reply_to_id", models.BigIntegerField(blank=True, null=True)),
+                ("author", models.CharField(blank=True, default="", max_length=255)),
+                ("is_bot", models.BooleanField(default=False)),
+                ("body", models.TextField(blank=True, default="")),
+                ("path", models.TextField(blank=True, default="")),
+                ("line", models.IntegerField(blank=True, null=True)),
+                ("url", models.TextField(blank=True, default="")),
+                ("triaged_at", models.DateTimeField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "pull_request",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="comments",
+                        to="tracker.pullrequest",
+                    ),
+                ),
+                (
+                    "triaged_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="triaged_comments",
+                        to="tracker.session",
+                    ),
+                ),
+            ],
+            options={
+                "ordering": ["id"],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("pull_request", "kind", "github_id"),
+                        name="unique_pr_comment",
+                    )
+                ],
+            },
+        ),
         migrations.AddField(
             model_name="alert",
             name="pull_request",

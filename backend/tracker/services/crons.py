@@ -190,6 +190,9 @@ def check_new_prs(run: models.CronRun) -> list[models.PullRequest]:
                     "author": pull_request.author,
                 },
             )
+            # The conversation is read with the PR: what the reviewers asked for is
+            # the reason this app watches pull requests at all.
+            pull_requests.store_comments(client, row)
             seen.append(row)
         refresh_closed_prs(client, repo, still_open)
     pull_requests.link_to_tickets(seen)

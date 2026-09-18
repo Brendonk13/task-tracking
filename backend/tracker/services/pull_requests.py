@@ -110,3 +110,41 @@ def flag_unlinked(pull_request: models.PullRequest) -> models.Alert | None:
         pull_request=pull_request,
         message=f"PR #{pull_request.number} matches no ticket: {pull_request.title}",
     )
+
+
+def store_comments(client, pull_request: models.PullRequest) -> list[models.PRComment]:
+    """Read every feed on a PR and keep what is new, in one insert.
+
+    The cron looks at the same pull requests every fifteen minutes and GitHub answers
+    with the whole conversation every time, so the insert ignores conflicts: a comment
+    this app already holds is recognised by ``(pull_request, kind, github_id)`` and
+    writes nothing, rather than doubling the thread and making every old comment look
+    new to triage.
+
+    A review with an empty body is not a comment. It is the wrapper GitHub creates
+    around inline comments, and those comments arrive on their own feed, so storing it
+    would invent something nobody wrote.
+    """
+    said = [
+        comment
+        for comment in client.comments(pull_request.repo, pull_request.number)
+        if comment.body.strip()
+    ]
+    return models.PRComment.objects.bulk_create(
+        [
+            models.PRComment(
+                pull_request=pull_request,
+                kind=comment.kind,
+                github_id=comment.github_id,
+                in_reply_to_id=comment.in_reply_to_id,
+                author=comment.author,
+                is_bot=comment.is_bot,
+                body=comment.body,
+                path=comment.path,
+                line=comment.line,
+                url=comment.url,
+            )
+            for comment in said
+        ],
+        ignore_conflicts=True,
+    )

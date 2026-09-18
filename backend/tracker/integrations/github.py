@@ -64,6 +64,62 @@ class PullRequestSummary:
         )
 
 
+REVIEW_COMMENT = "review_comment"
+ISSUE_COMMENT = "issue_comment"
+REVIEW = "review"
+
+COMMENT_FEEDS = (
+    # Inline comments on the diff, threaded through ``in_reply_to_id``.
+    (REVIEW_COMMENT, "pulls/{number}/comments"),
+    # Comments on the PR as an issue, which is where the bots talk.
+    (ISSUE_COMMENT, "issues/{number}/comments"),
+    # The reviews themselves, whose body is the "here is what I think" note.
+    (REVIEW, "pulls/{number}/reviews"),
+)
+"""The three places GitHub keeps the conversation on a pull request.
+
+A triage that read only one of them would answer half the review, and the kinds are
+stored alongside the id because the three feeds number their items separately: the same
+id can name a review comment and a review. The values pair with
+``models.PRCommentKind``.
+"""
+
+
+@dataclass(frozen=True)
+class PRCommentPayload:
+    """One thing somebody said on a pull request, flattened out of one of the feeds."""
+
+    kind: str
+    github_id: int
+    in_reply_to_id: int | None
+    author: str
+    is_bot: bool
+    body: str
+    path: str
+    line: int | None
+    url: str
+
+    @classmethod
+    def from_json(cls, kind: str, item: dict) -> "PRCommentPayload":
+        user = item.get("user") or {}
+        return cls(
+            kind=kind,
+            github_id=item["id"],
+            # Only an inline comment can be a reply; the other two feeds are flat.
+            in_reply_to_id=item.get("in_reply_to_id"),
+            author=user.get("login") or "",
+            # GitHub says so itself, rather than us guessing from a ``[bot]`` suffix.
+            is_bot=(user.get("type") or "") == "Bot",
+            body=item.get("body") or "",
+            # Only an inline comment hangs off a file, and a comment on an outdated
+            # diff has lost its line.
+            path=item.get("path") or "",
+            line=item.get("line"),
+            # The page a human opens to read it, not the API URL.
+            url=item.get("html_url") or "",
+        )
+
+
 class GhClient:
     """A read-only ``gh`` client. Construct it with the executable to run."""
 
@@ -111,6 +167,24 @@ class GhClient:
                 ",".join(PR_FIELDS),
             )
         )
+
+    def comments(self, repo: str, number: int) -> list[PRCommentPayload]:
+        """Everything said on one pull request, from all three of GitHub's feeds.
+
+        Every feed is paginated, so every read is ``--paginate``: a plain ``gh api``
+        stops at the first page and a busy PR would silently lose its review from the
+        thirty-first comment on. The three answers become one list because the caller
+        cares about the conversation, not about which endpoint carried each line.
+        """
+        return [
+            PRCommentPayload.from_json(kind, item)
+            for kind, path in COMMENT_FEEDS
+            for item in self._query(
+                "api",
+                "--paginate",
+                f"repos/{repo}/{path.format(number=number)}",
+            )
+        ]
 
     def _query(self, *arguments: str):
         """Run one ``gh`` question and parse what it printed.

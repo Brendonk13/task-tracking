@@ -341,3 +341,68 @@ class PullRequest(models.Model):
         ]
         # Newest PR first within a repo: that is the order a person scans them in.
         ordering = ["repo", "-number"]
+
+
+class PRCommentKind(models.TextChoices):
+    """Which of GitHub's three feeds a comment came off.
+
+    The feeds number their items separately, so the kind is half of a comment's
+    identity: the same id can name an inline comment and a review.
+    """
+
+    REVIEW_COMMENT = "review_comment"
+    ISSUE_COMMENT = "issue_comment"
+    REVIEW = "review"
+
+
+class PRComment(models.Model):
+    """One thing somebody said on a pull request, as GitHub told it to us.
+
+    Like its pull request, the row is a cache of something this app can never write to,
+    so it is keyed by what GitHub calls it — the kind of feed plus the id from that feed
+    — inside the PR it was said on. That identity is what makes a cron pass idempotent:
+    re-reading a feed recognises every comment it already holds instead of doubling the
+    conversation every fifteen minutes.
+
+    ``triaged_by``/``triaged_at`` are the only columns this app writes on its own: they
+    record that a triage session has already answered this comment, so the next pass
+    leaves it alone.
+    """
+
+    pull_request = models.ForeignKey(
+        PullRequest, on_delete=models.CASCADE, related_name="comments"
+    )
+    kind = models.CharField(max_length=20, choices=PRCommentKind.choices)
+    # GitHub's own id for the comment, within its feed.
+    github_id = models.BigIntegerField()
+    # The inline comment this one answers, so a thread can be rebuilt; null on the two
+    # flat feeds and on the first comment of a thread.
+    in_reply_to_id = models.BigIntegerField(null=True, blank=True)
+    author = models.CharField(max_length=255, blank=True, default="")
+    # As GitHub classifies the author, rather than guessed from a ``[bot]`` suffix.
+    is_bot = models.BooleanField(default=False)
+    body = models.TextField(blank=True, default="")
+    # Where on the diff it hangs; blank on anything that is not an inline comment, and
+    # the line is lost once the diff it pointed at is outdated.
+    path = models.TextField(blank=True, default="")
+    line = models.IntegerField(null=True, blank=True)
+    url = models.TextField(blank=True, default="")
+    # The session that triaged it; null until one has.
+    triaged_by = models.ForeignKey(
+        Session,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="triaged_comments",
+    )
+    triaged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["pull_request", "kind", "github_id"], name="unique_pr_comment"
+            )
+        ]
+        # Oldest first: a conversation reads in the order it was written.
+        ordering = ["id"]

@@ -458,3 +458,6 @@ class PullRequestItem(Schema):
     author: str
     # The ticket this PR is work on; null until the cron or a human links them.
     ticket_id: int | None
+    # How much has been said on the PR across GitHub's three comment feeds; annotated
+    # by the router so a listing stays one query.
+    comment_count: int = 0

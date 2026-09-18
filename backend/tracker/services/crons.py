@@ -4,6 +4,8 @@ The command and (later) the API are both thin wrappers over ``start_run`` and
 ``execute``, so a run behaves the same however it was triggered.
 """
 
+import re
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -35,6 +37,23 @@ PRIORITY_BY_LINEAR = {
 }
 
 
+# A Linear issue URL spells its identifier out after ``/issue/``, e.g.
+# https://linear.app/avantos/issue/CON-7/external-handoff-dispatch-drops-the-task-id
+LINEAR_ISSUE_URL = re.compile(r"/issue/(?P<identifier>[A-Za-z][A-Za-z0-9]*-\d+)")
+
+
+def identifier_in_url(url: str | None) -> str | None:
+    """The Linear identifier a URL points at, upper-cased, or ``None``.
+
+    People often raise the ticket here first and paste the Linear URL into it, leaving
+    ``linear_identifier`` blank. The URL is then the only place the identifier is
+    written down, so reading it back out is what lets the import recognise an issue it
+    already has a ticket for.
+    """
+    match = LINEAR_ISSUE_URL.search(url or "")
+    return match.group("identifier").upper() if match else None
+
+
 def missing_settings(step: str) -> list[str]:
     """The names of the settings ``step`` needs that are blank."""
     return [name for name in STEP_SETTINGS[step] if not getattr(settings, name, None)]
@@ -61,7 +80,11 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
     attribute such a change to, and a reader wants the issue's history from Linear, not
     a replay of the import.
 
-    Only issues we have never seen before are born here. The cron runs every fifteen
+    Only issues we have never seen before are born here. An issue a human already
+    raised a ticket for by hand — recognised by the identifier they pasted in as a
+    Linear URL — is adopted instead of duplicated: it gains the issue's ``linear_id``
+    and ``linear_identifier``, and keeps everything the human wrote, which they may
+    have worded that way on purpose. The cron runs every fifteen
     minutes over the same open issues, so an issue that already has a ticket is left
     untouched — not re-saved with identical values, which would move ``updated_at`` and
     make every pass look like a change.
@@ -70,10 +93,21 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
     issues = client.assigned_active_issues(settings.LINEAR_ASSIGNEE_EMAIL)
 
     known = set(models.Ticket.objects.values_list("linear_id", flat=True))
+    unlinked = {}
+    for ticket in models.Ticket.objects.filter(linear_id__isnull=True):
+        identifier = ticket.linear_identifier or identifier_in_url(ticket.linear_url)
+        if identifier:
+            unlinked.setdefault(identifier.upper(), ticket)
 
     imported = []
     for issue in issues:
         if issue.id in known:
+            continue
+        adopted = unlinked.get(issue.identifier.upper())
+        if adopted is not None:
+            adopted.linear_id = issue.id
+            adopted.linear_identifier = issue.identifier
+            adopted.save(update_fields=["linear_id", "linear_identifier"])
             continue
         ticket = models.Ticket.objects.create(
             title=issue.title,

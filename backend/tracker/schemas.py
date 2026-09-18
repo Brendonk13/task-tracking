@@ -202,6 +202,7 @@ class TicketListItem(Schema):
     status: str | None
     needs_human_eyes: bool
     linear_url: str | None
+    linear_identifier: str | None
     project: str | None
     labels: list[str]
     parent_id: int | None

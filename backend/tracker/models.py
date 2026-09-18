@@ -55,6 +55,11 @@ class Ticket(models.Model):
         max_length=10, choices=Priority.choices, default=Priority.NONE
     )
     linear_url = models.URLField(max_length=2000, null=True, blank=True)
+    # Where the ticket came from, when it came from Linear: the issue's UUID, and the
+    # human key ("CON-7") people actually say out loud. Both are null for a ticket
+    # someone created here, and unique so one issue cannot be imported twice.
+    linear_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    linear_identifier = models.CharField(max_length=50, null=True, blank=True, unique=True)
     status = models.ForeignKey(
         Status, null=True, blank=True, on_delete=models.PROTECT, related_name="tickets"
     )

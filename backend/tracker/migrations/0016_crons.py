@@ -11,6 +11,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name="ticket",
+            name="linear_id",
+            field=models.CharField(blank=True, max_length=64, null=True, unique=True),
+        ),
+        migrations.AddField(
+            model_name="ticket",
+            name="linear_identifier",
+            field=models.CharField(blank=True, max_length=50, null=True, unique=True),
+        ),
         migrations.CreateModel(
             name="CronRun",
             fields=[

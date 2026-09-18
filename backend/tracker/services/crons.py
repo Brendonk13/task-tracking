@@ -8,6 +8,8 @@ from django.conf import settings
 from django.utils import timezone
 
 from tracker import models
+from tracker.integrations import linear
+from tracker.services import tags
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
@@ -17,8 +19,19 @@ def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> m
 
 # What each step of the pass needs from the environment (§2). A step whose settings
 # are not all filled in cannot run, so it is skipped rather than half-done.
+IMPORT_TICKETS = "import tickets from Linear"
+
 STEP_SETTINGS = {
-    "import tickets from Linear": ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
+    IMPORT_TICKETS: ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
+}
+
+# Linear grades urgency 1 (most urgent) to 4, with 0 meaning "nobody said".
+PRIORITY_BY_LINEAR = {
+    0: models.Priority.NONE,
+    1: models.Priority.URGENT,
+    2: models.Priority.HIGH,
+    3: models.Priority.MEDIUM,
+    4: models.Priority.LOW,
 }
 
 
@@ -40,19 +53,52 @@ def skip_step(run: models.CronRun, step: str, missing: list[str]) -> models.Aler
     )
 
 
+def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
+    """Import the Linear issues assigned to us as tickets.
+
+    An import is a birth, not an edit: the ticket arrives already holding these values,
+    so no ``field_change`` timeline entry is written for them. There is nobody to
+    attribute such a change to, and a reader wants the issue's history from Linear, not
+    a replay of the import.
+    """
+    client = linear.LinearClient(settings.LINEAR_API_KEY)
+    issues = client.assigned_active_issues(settings.LINEAR_ASSIGNEE_EMAIL)
+
+    imported = []
+    for issue in issues:
+        ticket = models.Ticket.objects.create(
+            title=issue.title,
+            description=issue.description,
+            priority=PRIORITY_BY_LINEAR[issue.priority],
+            linear_url=issue.url,
+            linear_id=issue.id,
+            linear_identifier=issue.identifier,
+        )
+        tags.set_tags(ticket, issue.project, issue.labels)
+        imported.append(ticket)
+    return imported
+
+
+# Each step of the pass, in the order it runs.
+STEPS = {
+    IMPORT_TICKETS: check_new_tickets,
+}
+
+
 def execute(run: models.CronRun) -> models.CronRun:
     """Do the run's work, then close it out.
 
     Each step is checked against its config first; an unconfigured step is skipped and
-    the pass carries on, so one missing variable never costs the whole run. No step does
-    any work yet, so a configured step is a no-op; the run itself is still recorded,
-    which is what makes a "nothing to do" cron distinguishable from one that never
-    started.
+    the pass carries on, so one missing variable never costs the whole run. The run itself
+    is recorded either way, which is what makes a "nothing to do" cron distinguishable
+    from one that never started.
     """
-    for step in STEP_SETTINGS:
+    for step, do_step in STEPS.items():
         missing = missing_settings(step)
         if missing:
             skip_step(run, step, missing)
+            continue
+        do_step(run)
 
     run.status = models.CronRunStatus.FINISHED
     run.finished_at = timezone.now()

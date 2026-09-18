@@ -22,6 +22,7 @@ from tracker.integrations.claude_runner import ClaudeRequest, ClaudeResult, Clau
 from tracker.services import sessions
 from tracker.services import tasks as task_service
 from tracker.services import tickets as ticket_service
+from tracker.services.briefs import failure_reason
 
 BLOCKED_STATUS = "blocked"
 """Where a triaged ticket lands: every task on it is behind a gate only a human can
@@ -497,6 +498,33 @@ def hand_to_a_human(
     )
 
 
+def record_failure(
+    pull_request: models.PullRequest,
+    session: models.Session,
+    result: ClaudeResult,
+) -> models.Alert:
+    """Close out a dead triage run and tell a human about it, as a brief failure does.
+
+    A run that exited non-zero judged nothing, so nothing here is derived from it: no
+    tasks, no block, no flag, no ``pr_triaged``. Inferring any of those from a crash
+    would send a person to a gate with nothing behind it. The session stops claiming to
+    be ``running``, and the only thing written is the failure itself — carrying the
+    session, so the alerts page can name it and resume its transcript, the pull request
+    whose triage is still owed, and the cron run it belonged to, none of which the
+    message alone could be filtered by.
+    """
+    reason = failure_reason(result)
+    sessions.fail_session(session, last_message=result.stderr or result.result_text)
+    return models.Alert.objects.create(
+        kind=models.AlertKind.CRON_ERROR,
+        ticket=pull_request.ticket,
+        pull_request=pull_request,
+        session=session,
+        cron_run=session.cron_run,
+        message=f"Triage of PR #{pull_request.number} failed: {reason}",
+    )
+
+
 def triage_dir() -> Path:
     """The directory triage analyses are written into, created if it is not there yet.
 
@@ -656,6 +684,12 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
                 max_budget_usd=settings.CLAUDE_MAX_BUDGET_USD,
             )
         )
+        if not result.ok:
+            # Nothing judged these comments, so they stay pending and the next run owes
+            # them a triage; this run is recorded only as the failure it was.
+            record_failure(pull_request, session, result)
+            started.append(session)
+            continue
         analysis = read_analysis(session, result)
         if analysis is not None:
             if analysis.needs_a_human:

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tracker.tests import fakes
@@ -174,3 +176,53 @@ def test_unlinked_pr_raises_one_pr_unlinked_alert_across_repeated_runs(
             assert alert["pull_request"]["id"] == prs[number]["id"], alert
             assert str(number) in alert["message"], alert
             assert alert["ticket"] is None, alert
+
+
+def test_second_run_does_not_duplicate_prs_and_refreshes_state_of_prs_no_longer_open(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A PR is a row keyed by ``(repo, number)``, and leaving the open list is news (§4 C3.4).
+
+    The second run sees the same PRs again. They are the same pull requests, not new
+    ones, so each updates the row it already has: ``GET /pull-requests`` still holds
+    exactly one row per PR the first run imported.
+
+    One PR is missing from the second list. A PR does not vanish from GitHub — it drops
+    out of ``--state open`` because it was merged or closed — so the run has to go and
+    ask ``gh pr view`` what became of it rather than leave the row saying ``open``
+    forever. ``gh`` answers with the merged payload, and that is the state the row ends
+    up in. The payload is a real ``pr view`` capture of another PR, rewritten to this
+    PR's number and url: the shape is GitHub's, the identity is ours.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    imported = fixture_json("gh/pr_list.json")
+    dropped = imported[0]
+    still_open = imported[1:]
+
+    run_cron(client)
+
+    first_run = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+    assert sorted(first_run) == sorted(pr["number"] for pr in imported), first_run
+    assert first_run[dropped["number"]]["state"] == "open", first_run[dropped["number"]]
+
+    merged = dict(fixture_json("gh/pr_view_merged.json"))
+    assert merged["state"] == "MERGED", "the fixture is no longer a merged PR"
+    merged["number"] = dropped["number"]
+    merged["url"] = dropped["url"]
+    fake_processes.on("gh", "pr", "list", stdout=json.dumps(still_open))
+    fake_processes.on("gh", "pr", "view", str(dropped["number"]), stdout=json.dumps(merged))
+
+    run_cron(client)
+
+    second_run = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+    assert len(client.get("/pull-requests").json()) == len(imported), second_run
+    assert sorted(second_run) == sorted(pr["number"] for pr in imported), second_run
+    assert second_run[dropped["number"]]["id"] == first_run[dropped["number"]]["id"], second_run
+    assert second_run[dropped["number"]]["state"] == "merged", second_run[dropped["number"]]
+    for pull_request in still_open:
+        number = pull_request["number"]
+        assert second_run[number]["id"] == first_run[number]["id"], second_run[number]
+        assert second_run[number]["state"] == "open", second_run[number]

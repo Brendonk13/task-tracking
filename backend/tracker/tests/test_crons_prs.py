@@ -308,3 +308,78 @@ def test_review_issue_and_review_summary_comments_are_imported_once(
         assert any(f"/pulls/{number}/comments" in path for path in paths), paths
         assert any(f"/issues/{number}/comments" in path for path in paths), paths
         assert any(path.endswith(f"/pulls/{number}/reviews") for path in paths), paths
+
+
+def test_github_client_only_ever_reads(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """Nothing the cron asks ``gh`` to do can change anything on GitHub (§4 C3.6, §6).
+
+    This is the guard behind the whole design. The cron reads a PR conversation and
+    then hands the findings to a human via blocked tasks; it never answers a reviewer
+    itself. That promise is only worth anything at the boundary, because ``gh`` is a
+    single binary where ``pr view`` and ``pr comment`` are one word apart, and a helper
+    added later to "just close the stale ones" would break the promise without breaking
+    any other test in this lane.
+
+    So the whole ``gh`` surface of a full run is inspected: the listing, the detail view
+    a dropped PR forces, and the three comment feeds — every call the PR steps know how
+    to make. Each one must be a read. ``pr list`` and ``pr view`` are reads by name.
+    ``gh api`` is a read only while it stays a GET: ``-X``/``--method`` choose a verb,
+    ``-f``/``-F``/``--input`` send a body (which makes ``gh`` POST on its own), and
+    ``graphql`` is where mutations live. The write subcommands are named too, so that a
+    ``gh pr comment`` fails here loudly rather than passing for want of a rule.
+
+    The second run is what brings ``gh pr view`` in: PR 10264 has left the open list, and
+    the run goes to ask what became of it (C3.4). The count guard at the end keeps the
+    test honest — a run that made no ``gh`` calls at all would satisfy every other
+    assertion here trivially.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    def serve_feed(segment: str, name: str) -> None:
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=fakes.fixture_text(name),
+            )
+        )
+
+    serve_feed("/pulls/", "gh/review_comments.json")
+    serve_feed("/issues/", "gh/issue_comments.json")
+    serve_feed("/reviews", "gh/reviews.json")
+
+    imported = fixture_json("gh/pr_list.json")
+    dropped = imported[0]
+
+    run_cron(client)
+
+    merged = dict(fixture_json("gh/pr_view_merged.json"))
+    merged["number"] = dropped["number"]
+    merged["url"] = dropped["url"]
+    fake_processes.on("gh", "pr", "list", stdout=json.dumps(imported[1:]))
+    fake_processes.on("gh", "pr", "view", str(dropped["number"]), stdout=json.dumps(merged))
+
+    run_cron(client)
+
+    write_switches = {"-X", "--method", "-f", "-F", "--input"}
+
+    def is_read(argv: list[str]) -> bool:
+        subcommand = argv[1:3]
+        if subcommand in (["pr", "list"], ["pr", "view"]):
+            return True
+        if argv[1:2] != ["api"]:
+            return False
+        return not any(
+            arg in write_switches or arg.startswith("-X") or arg == "graphql" for arg in argv[2:]
+        )
+
+    argvs = fake_processes.argvs_to("gh")
+    assert argvs, "no gh call was made, so this guard proved nothing"
+    assert all(is_read(argv) for argv in argvs), [
+        argv for argv in argvs if not is_read(argv)
+    ]

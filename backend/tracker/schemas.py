@@ -3,7 +3,15 @@ from datetime import datetime, timezone
 from ninja import Schema
 from pydantic import Field, field_validator, model_validator
 
-from tracker.models import FINISHED_TASK_STATES, Priority, TaskHistoryKind, TaskState, TimelineKind
+from tracker.models import (
+    FINISHED_TASK_STATES,
+    CronRunStatus,
+    CronRunTrigger,
+    Priority,
+    TaskHistoryKind,
+    TaskState,
+    TimelineKind,
+)
 from tracker.services import actors, tags
 
 
@@ -352,3 +360,15 @@ class StatusItem(Schema):
 
 class TicketsSummary(Schema):
     needs_human_eyes_count: int
+
+
+class CronRun(Schema):
+    id: int
+    status: CronRunStatus
+    trigger: CronRunTrigger
+    summary: str
+    error: str
+    pid: int | None
+    started_at: datetime
+    created_at: datetime
+    finished_at: datetime | None

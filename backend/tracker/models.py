@@ -161,3 +161,39 @@ class TaskHistoryEntry(models.Model):
 
     class Meta:
         ordering = ["created_at", "id"]
+
+
+class CronRunStatus(models.TextChoices):
+    RUNNING = "running"
+    FINISHED = "finished"
+    FAILED = "failed"
+
+
+class CronRunTrigger(models.TextChoices):
+    API = "api"
+    COMMAND = "command"
+
+
+class CronRun(models.Model):
+    """One pass of the cron over its configured work.
+
+    A row exists from the moment a run starts, so a run that dies mid-flight is still
+    visible as ``running`` rather than vanishing. ``pid`` is the worker process, kept so
+    a later slice can tell a stalled run from a live one; it is null when the run is not
+    driven by a detached worker.
+    """
+
+    status = models.CharField(
+        max_length=20, choices=CronRunStatus.choices, default=CronRunStatus.RUNNING
+    )
+    trigger = models.CharField(max_length=20, choices=CronRunTrigger.choices)
+    summary = models.TextField(default="", blank=True)
+    error = models.TextField(default="", blank=True)
+    pid = models.IntegerField(null=True, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        # Newest first: the API and the UI both want the latest run at the top.
+        ordering = ["-started_at", "-id"]

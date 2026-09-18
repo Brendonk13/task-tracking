@@ -24,6 +24,10 @@ class ClaudeRequest:
     model: str
     effort: str
     timeout: float | None = None
+    permission_mode: str = ""
+    add_dirs: tuple[str, ...] = ()
+    json_schema: dict | None = None
+    max_budget_usd: float | None = None
 
 
 @dataclass(frozen=True)
@@ -60,8 +64,13 @@ class ClaudeRunner:
         ``--session-id`` is ours, not Claude's: the caller already wrote the session row
         under that id, so the transcript this run leaves behind is the one the Sessions
         page offers to resume.
+
+        Everything after it is what makes the run survivable unattended: no permission
+        prompt can stop a cron, ``--json-schema`` makes the answer something the caller
+        can read instead of prose, ``--add-dir`` grants the one directory outside ``cwd``
+        the run must write to, and the budget is the ceiling on a run nobody is watching.
         """
-        return [
+        command = [
             self._binary,
             "-p",
             request.prompt,
@@ -73,7 +82,18 @@ class ClaudeRunner:
             request.effort,
             "--session-id",
             request.session_id,
+            "--permission-prompts",
+            "none",
         ]
+        if request.permission_mode:
+            command += ["--permission-mode", request.permission_mode]
+        if request.json_schema is not None:
+            command += ["--json-schema", json.dumps(request.json_schema)]
+        for directory in request.add_dirs:
+            command += ["--add-dir", directory]
+        if request.max_budget_usd is not None:
+            command += ["--max-budget-usd", str(request.max_budget_usd)]
+        return command
 
     def run(self, request: ClaudeRequest) -> ClaudeResult:
         completed = processes.run(

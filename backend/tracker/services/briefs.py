@@ -14,6 +14,24 @@ from tracker.services import sessions
 
 BRIEF_MODEL = "opus"
 BRIEF_EFFORT = "high"
+BRIEF_PERMISSION_MODE = "acceptEdits"
+
+BRIEF_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "md_path": {"type": "string"},
+        "html_path": {"type": "string"},
+        "next_step": {"type": "string"},
+        "summary": {"type": "string"},
+    },
+    "required": ["md_path", "html_path", "next_step", "summary"],
+}
+"""What the run has to hand back.
+
+The brief itself is two files on disk, so the only thing the cron needs from the
+process is where they landed — plus enough of the verdict to show on the ticket
+without opening the HTML.
+"""
 
 
 def brief_prompt(ticket: models.Ticket) -> str:
@@ -67,6 +85,10 @@ def write_briefs(run: models.CronRun) -> list[models.Session]:
                 model=session.model,
                 effort=session.effort,
                 timeout=settings.CLAUDE_SESSION_TIMEOUT_SECONDS,
+                permission_mode=BRIEF_PERMISSION_MODE,
+                add_dirs=(settings.BRIEFS_DIR,),
+                json_schema=BRIEF_SCHEMA,
+                max_budget_usd=settings.CLAUDE_MAX_BUDGET_USD,
             )
         )
         started.append(session)

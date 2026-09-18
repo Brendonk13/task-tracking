@@ -1240,3 +1240,133 @@ def test_empty_analysis_marks_comments_triaged_without_blocking_the_ticket(
     run_cron(client)
 
     assert len(triage_calls()) == 1, fake_processes.argvs_to("claude")
+
+
+def test_failed_triage_leaves_comments_pending_and_raises_cron_error(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A triage that dies decides nothing, and the work stays owed (§4 C4.10).
+
+    Everything this step writes is *derived* from one session's judgement: the tasks
+    quote its verdicts, the block and the flag say a human must read them, and the
+    ``pr_triaged`` alert announces that there is something to read. When the process
+    exits non-zero there is no judgement at all — no analysis file, no items, nothing
+    but a stderr line. So nothing may be inferred from it. A ticket blocked and flagged
+    on the strength of a crashed run would send a person to a gate with no tasks behind
+    it and no reason anyone could check, which is worse than silence: it is a signal
+    that means nothing. The honest outcome is that the ticket is exactly as the run
+    found it, and that the failure itself is what gets reported — one ``cron_error``
+    alert carrying the session, so the reader can resume the transcript and see how it
+    died.
+
+    The second half is what makes this a retry rather than a loss. Being triaged is a
+    fact recorded on the comment (C4.8) and only a session that actually judged it may
+    record it; a failed run that marked its comments anyway would bury real reviewer
+    feedback forever, because the feed never changes and the pending rule would never
+    pick those comments up again. So the comments stay pending and the very next run
+    owes them a triage — a fresh ``claude`` with its own ``--session-id``, since the
+    dead session's id belongs to a transcript that already ended.
+
+    The setup is C4.7's — one hand-raised ticket for the PR's identifier, one PR whose
+    review comments are still waiting on an answer, every other feed empty, the per-run
+    budget raised so briefs cannot crowd the triage out — with the one difference under
+    test: the ``claude`` that carries the triage skill fails the way the real binary
+    does, a non-zero exit with the reason on stderr and nothing on stdout.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            returncode=1,
+            stderr="Credit balance is too low to continue.",
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+    status_before = client.get(f"/tickets/{ticket_id}").json()["status"]
+    assert status_before != "blocked", status_before
+
+    def triage_calls() -> list[fakes.Call]:
+        return [
+            call
+            for call in fake_processes.calls_to("claude")
+            if TRIAGE_SKILL in (call.arg_after("-p") or "")
+        ]
+
+    run = run_cron(client)
+
+    assert run["status"] == "finished", run  # one dead session is not a dead cron
+    first_calls = triage_calls()
+    assert len(first_calls) == 1, fake_processes.argvs_to("claude")
+    session_id = first_calls[0].arg_after("--session-id")
+
+    tasks = client.get(f"/tickets/{ticket_id}/tasks")
+    assert tasks.status_code == 200, tasks.content
+    assert tasks.json() == [], tasks.json()
+
+    ticket = client.get(f"/tickets/{ticket_id}").json()
+    assert ticket["status"] == status_before, ticket["status"]
+    assert ticket["needs_human_eyes"] is False, ticket
+    assert [
+        entry for entry in ticket["timeline"] if entry["kind"] in ("status_change", "flag_change")
+    ] == [], ticket["timeline"]
+
+    alerts = client.get("/alerts")
+    assert alerts.status_code == 200, alerts.content
+    assert [alert for alert in alerts.json() if alert["kind"] == "pr_triaged"] == [], alerts.json()
+    failures = [
+        alert
+        for alert in alerts.json()
+        if alert["kind"] == "cron_error"
+        and (alert["session"] or {}).get("session_id") == session_id
+    ]
+    assert len(failures) == 1, alerts.json()
+
+    sessions = {session["session_id"]: session for session in client.get("/sessions").json()}
+    assert session_id in sessions, sessions
+    assert failures[0]["session"]["name"] == sessions[session_id]["name"], failures[0]
+
+    # Nothing judged the comments, so they are still owed a triage: the next run retries.
+    run_cron(client)
+
+    second_calls = triage_calls()
+    assert len(second_calls) == 2, fake_processes.argvs_to("claude")
+    session_ids = [call.arg_after("--session-id") for call in second_calls]
+    assert len(set(session_ids)) == 2, session_ids

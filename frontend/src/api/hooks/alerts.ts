@@ -14,3 +14,16 @@ export function useAlertsSummary() {
     },
   })
 }
+
+export type Alert = components["schemas"]["Alert"]
+
+export const alertsQueryKey = ["alerts", "list"] as const
+
+export function useAlerts() {
+  return useQuery({
+    queryKey: alertsQueryKey,
+    queryFn: async (): Promise<Alert[]> => {
+      return unwrap(await api.GET("/api/alerts"), "Failed to load alerts")
+    },
+  })
+}

@@ -233,20 +233,6 @@ def record_brief(
     return brief
 
 
-def remaining_session_budget(run: models.CronRun) -> int:
-    """How many more sessions this pass may still start (§2).
-
-    The cron is unattended and every session is a paid headless ``claude``, so a morning
-    that imports a whole backlog must not become a dozen concurrent processes and the
-    day's budget gone in one pass. The allowance is counted against the sessions already
-    linked to this run rather than tracked by the caller, so every step that spends
-    sessions — briefs now, PR triage later — draws from the one ceiling without having
-    to know about each other.
-    """
-    spent = models.Session.objects.filter(cron_run=run).count()
-    return max(settings.CRON_MAX_SESSIONS_PER_RUN - spent, 0)
-
-
 def write_briefs(run: models.CronRun) -> list[models.Session]:
     """Start one brief session per ticket that needs one, and record what it produced.
 
@@ -263,7 +249,7 @@ def write_briefs(run: models.CronRun) -> list[models.Session]:
     directory = repo_directory()
     started = []
     for ticket in tickets_needing_brief():
-        if remaining_session_budget(run) <= 0:
+        if sessions.remaining_session_budget(run) <= 0:
             break
         session = sessions.create_managed_session(
             purpose=models.SessionPurpose.TICKET_BRIEF,

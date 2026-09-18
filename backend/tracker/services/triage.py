@@ -650,10 +650,18 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
 
     A PR whose repository has no configured working copy is passed over rather than run
     somewhere guessed: a triage reads the diff, and there is no safe default checkout.
+
+    Only as many sessions are started as the run has left of its allowance, which is the
+    same allowance the brief step spent from earlier in the pass — one run, one ceiling.
+    A PR that does not fit waits: its comments are still unanswered, so
+    ``pull_requests_needing_triage`` will offer it again on the next pass. The work is
+    deferred, never dropped.
     """
     runner = ClaudeRunner(settings.CLAUDE_BIN)
     started = []
     for pull_request in pull_requests_needing_triage():
+        if sessions.remaining_session_budget(run) <= 0:
+            break
         directory = settings.REPO_DIRS.get(pull_request.repo)
         if not directory:
             continue

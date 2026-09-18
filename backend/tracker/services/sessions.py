@@ -8,6 +8,7 @@ explain it, and so the crash of a run still leaves the session behind to be foun
 
 import uuid
 
+from django.conf import settings
 from django.utils import timezone
 
 from tracker import models
@@ -96,3 +97,19 @@ def fail_session(
     session.result_summary = summary
     session.save()
     return session
+
+
+def remaining_session_budget(run: models.CronRun) -> int:
+    """How many more sessions this cron pass may still start (§2).
+
+    The cron is unattended and every managed session is a paid headless ``claude``, so a
+    morning that imports a whole backlog and finds a week of review comments must not
+    become a dozen concurrent processes and the day's budget gone in one pass. The
+    allowance belongs to the run, not to any one step: an allowance kept per step would
+    let the real worst case be a multiple of the number the setting names, and grow
+    again with every step added later. It is counted against the sessions already linked
+    to this run rather than tracked by the caller, so briefs, PR triage and whatever
+    comes next all draw from the one ceiling without having to know about each other.
+    """
+    spent = models.Session.objects.filter(cron_run=run).count()
+    return max(settings.CRON_MAX_SESSIONS_PER_RUN - spent, 0)

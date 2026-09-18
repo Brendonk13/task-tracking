@@ -133,3 +133,44 @@ def test_pr_is_linked_to_the_ticket_whose_identifier_appears_in_branch_title_or_
     ]
     assert len(linked) == 1, flaky_detail["timeline"]
     assert "10172" in linked[0]["body"], linked[0]
+
+
+def test_unlinked_pr_raises_one_pr_unlinked_alert_across_repeated_runs(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A PR that names no ticket here is a standing flag, not a per-run event (§4 C3.3).
+
+    The three PRs in the fixture carry CON-2513, CON-2386 and CON-2223; the only tickets
+    in this database are the CON-7/8/9 the Linear pages import, so every PR arrives
+    unlinked. Each one is something a person has to sort out — a ticket nobody raised, a
+    typo'd branch — so each raises a ``pr_unlinked`` alert naming the PR by number, with
+    the PR nested on the alert so the alerts page can link straight to it.
+
+    The run happens twice. The second run learns nothing new, and the alert means "this
+    PR is still unlinked" rather than "the cron noticed again", so the count is the same
+    afterwards: one alert per unlinked PR, not one per run per PR.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    unlinked = sorted(pr["number"] for pr in fixture_json("gh/pr_list.json"))
+
+    for run in (1, 2):
+        run_cron(client)
+
+        prs = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+        assert all(prs[number]["ticket_id"] is None for number in unlinked), prs
+
+        alerts = [
+            alert for alert in client.get("/alerts").json() if alert["kind"] == "pr_unlinked"
+        ]
+        assert sorted(alert["pull_request"]["number"] for alert in alerts) == unlinked, (
+            run,
+            alerts,
+        )
+        for alert in alerts:
+            number = alert["pull_request"]["number"]
+            assert alert["pull_request"]["id"] == prs[number]["id"], alert
+            assert str(number) in alert["message"], alert
+            assert alert["ticket"] is None, alert

@@ -69,3 +69,67 @@ def test_open_prs_by_the_github_user_are_imported_and_listed(
         assert row["author"] == pull_request["author"]["login"]
         assert row["state"] == "open"
         assert pull_request["state"] == "OPEN", "the fixture no longer shouts its state"
+
+
+def test_pr_is_linked_to_the_ticket_whose_identifier_appears_in_branch_title_or_body_case_insensitively(  # noqa: E501
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A PR finds its ticket by the Linear identifier it carries (§4 C3.2).
+
+    GitHub spells the identifier three different ways in the same PR: the branch
+    lower-cases it (``brendonkeirle/con-2513-…``), the title shouts it
+    (``[CON-2386] …``) and the body writes it in prose. All three are the same
+    identifier, so the match is case-insensitive, and the places are tried in that
+    order — branch, then title, then body — which is why PR 10172 belongs to the
+    CON-2386 its branch and title name and not to the CON-2416 its body only
+    mentions in passing. A PR whose identifier names no ticket here (PR 9234's
+    CON-2223) links to nothing rather than to something that looks close.
+
+    The three tickets are raised by hand with their Linear URLs, which is the only
+    way the API lets a caller say which issue a ticket is — ``linear_identifier``
+    is never accepted on the wire — so the matcher reads the identifier out of
+    ``linear_url``, the same way the import does when it adopts a ticket (C1.7).
+    Linear is served its ordinary pages and any brief ``claude`` is answered
+    harmlessly, because neither is the subject here.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    def raise_ticket(identifier: str, slug: str) -> int:
+        response = client.post(
+            "/tickets",
+            json={
+                "title": f"Hand-raised for {identifier}",
+                "linear_url": f"https://linear.app/avantos/issue/{identifier}/{slug}",
+                "actor_session_id": "human",
+            },
+        )
+        assert response.status_code == 201, response.content
+        return response.json()["id"]
+
+    saml = raise_ticket("CON-2513", "add-sei-public-key-for-encrypting-saml")
+    flaky = raise_ticket("CON-2386", "unskip-forms-auto-save-validation-test")
+    dsl_race = raise_ticket("CON-2416", "wait-for-the-updating-overlay-before-typing")
+
+    run_cron(client)
+
+    prs = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+    assert prs[10264].get("ticket_id") == saml, prs[10264]
+    assert prs[10172].get("ticket_id") == flaky, prs[10172]
+    assert prs[9234].get("ticket_id") is None, prs[9234]
+
+    flaky_detail = client.get(f"/tickets/{flaky}").json()
+    assert [pr["number"] for pr in flaky_detail.get("pull_requests", [])] == [10172]
+    saml_detail = client.get(f"/tickets/{saml}").json()
+    assert [pr["number"] for pr in saml_detail.get("pull_requests", [])] == [10264]
+    race_detail = client.get(f"/tickets/{dsl_race}").json()
+    assert race_detail.get("pull_requests", []) == []
+
+    linked = [
+        entry
+        for entry in flaky_detail["timeline"]
+        if entry["kind"] == "field_change" and entry["actor"]["session_id"] == "cron"
+    ]
+    assert len(linked) == 1, flaky_detail["timeline"]
+    assert "10172" in linked[0]["body"], linked[0]

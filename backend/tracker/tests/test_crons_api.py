@@ -32,3 +32,27 @@ def test_post_crons_run_starts_a_run_and_launches_a_detached_worker(
     assert worker.kwargs.get("start_new_session") is True
 
     assert client.get("/crons/summary").json()["running"] is True
+
+
+def test_second_post_while_running_returns_the_same_run_with_200_and_launches_nothing(
+    client, cron_settings, fake_processes
+):
+    """One cron run at a time; a second POST joins it rather than failing (§4 C5.2).
+
+    Two triggers can fire at once — a system cron line and the frontend button — and a
+    second run would import the same tickets and spawn the same sessions twice. A
+    caller that arrives while one is in flight is not doing anything wrong, so it is
+    told 200 with the run already going (202 is reserved for "I started one"), and
+    nothing new appears at the ``popen`` boundary (S3).
+    """
+    first = client.post("/crons/run")
+    assert first.status_code == 202, first.content
+
+    second = client.post("/crons/run")
+
+    assert second.status_code == 200, second.content
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["status"] == "running"
+
+    assert len(fake_processes.popen_calls) == 1, fake_processes.popen_calls
+    assert len(client.get("/crons/runs").json()) == 1

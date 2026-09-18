@@ -21,6 +21,15 @@ def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> m
     return models.CronRun.objects.create(trigger=trigger, pid=pid)
 
 
+def running_run() -> models.CronRun | None:
+    """The pass currently in flight, if any.
+
+    ``one_running_cron_run`` means there is at most one, so callers can treat this as
+    the run rather than as the newest of several.
+    """
+    return models.CronRun.objects.filter(status=models.CronRunStatus.RUNNING).first()
+
+
 WORKER_DIR_NAME = "crons"
 """The folder under ``CRON_WORK_DIR`` that keeps one log per detached worker."""
 

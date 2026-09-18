@@ -345,6 +345,14 @@ class Migration(migrations.Migration):
                 max_length=20,
             ),
         ),
+        migrations.AddConstraint(
+            model_name="cronrun",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("status", "running")),
+                fields=("status",),
+                name="one_running_cron_run",
+            ),
+        ),
         migrations.AddField(
             model_name="alert",
             name="pull_request",

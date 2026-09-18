@@ -242,6 +242,19 @@ class CronRun(models.Model):
     class Meta:
         # Newest first: the API and the UI both want the latest run at the top.
         ordering = ["-started_at", "-id"]
+        constraints = [
+            # One pass at a time. Two triggers can fire at once — a system cron line
+            # and the frontend button — and a second pass would import the same
+            # tickets and spawn the same sessions twice. A check in the view cannot
+            # promise that under a race, so the database refuses the second row: the
+            # partial index only covers rows that are still running, which leaves any
+            # number of finished and failed runs in the history.
+            models.UniqueConstraint(
+                fields=["status"],
+                condition=models.Q(status=CronRunStatus.RUNNING),
+                name="one_running_cron_run",
+            )
+        ]
 
 
 class AlertKind(models.TextChoices):

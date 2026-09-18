@@ -1,5 +1,6 @@
 from typing import List
 
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.responses import Status
@@ -10,17 +11,30 @@ from tracker.services import crons
 router = Router(tags=["crons"])
 
 
-@router.post("/run", response={202: schemas.CronRun})
+@router.post("/run", response={200: schemas.CronRun, 202: schemas.CronRun})
 def start_run(request):
-    """Record the run here, then let a detached worker do it (§4 C5.1).
+    """Record the run here, then let a detached worker do it (§4 C5.1, C5.2).
 
     A cron pass talks to Linear, GitHub and Claude Code and takes minutes, which is far
     longer than a request should hold and longer than the autoreloading web process can
     promise to live. So the answer is 202 with a run that is already ``running``: the
     work has been accepted and started elsewhere, and ``GET /crons/summary`` is how the
     caller follows it.
+
+    Only one pass runs at a time. A caller that arrives while one is in flight is not
+    doing anything wrong, so it joins that run with 200 and no second worker is started;
+    202 is kept for "I started one". Two callers racing both pass the check above, so
+    the last word is the ``one_running_cron_run`` constraint: the loser's INSERT fails
+    and it joins the winner's run like any other late caller.
     """
-    run = crons.start_run(models.CronRunTrigger.API)
+    running = crons.running_run()
+    if running is not None:
+        return Status(200, running)
+    try:
+        with transaction.atomic():
+            run = crons.start_run(models.CronRunTrigger.API)
+    except IntegrityError:
+        return Status(200, crons.running_run())
     crons.spawn_worker(run)
     return Status(202, run)
 

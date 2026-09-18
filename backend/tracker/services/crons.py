@@ -10,7 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from tracker import models
-from tracker.integrations import linear
+from tracker.integrations import github, linear
 from tracker.services import briefs, tags
 
 
@@ -23,10 +23,12 @@ def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> m
 # are not all filled in cannot run, so it is skipped rather than half-done.
 IMPORT_TICKETS = "import tickets from Linear"
 WRITE_BRIEFS = "write ticket briefs"
+IMPORT_PRS = "import pull requests from GitHub"
 
 STEP_SETTINGS = {
     IMPORT_TICKETS: ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
     WRITE_BRIEFS: ("CLAUDE_BIN", "BRIEFS_DIR", "REPO_DIRS"),
+    IMPORT_PRS: ("GITHUB_USER", "GITHUB_REPOS"),
 }
 
 # Linear grades urgency 1 (most urgent) to 4, with 0 meaning "nobody said".
@@ -154,11 +156,45 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
     return imported
 
 
+def check_new_prs(run: models.CronRun) -> list[models.PullRequest]:
+    """Import the open pull requests the configured user has in the watched repos.
+
+    A pull request belongs to GitHub, not to this app, so the row is a cache: every
+    pass overwrites what GitHub currently says about it, keyed by the identity GitHub
+    itself uses, ``(repo, number)``. Nothing a human put on the row is touched, since
+    the values written here are exactly the ones ``gh`` printed.
+
+    Only the user's own open PRs are asked for. This app watches one person's work, and
+    a repo that busy would otherwise answer with everybody's.
+    """
+    client = github.GhClient()
+    seen = []
+    for repo in settings.GITHUB_REPOS:
+        for pull_request in client.open_prs(repo, settings.GITHUB_USER):
+            row, _created = models.PullRequest.objects.update_or_create(
+                repo=repo,
+                number=pull_request.number,
+                defaults={
+                    "url": pull_request.url,
+                    "title": pull_request.title,
+                    "body": pull_request.body,
+                    "branch": pull_request.branch,
+                    "head_sha": pull_request.head_sha,
+                    "state": pull_request.state,
+                    "author": pull_request.author,
+                },
+            )
+            seen.append(row)
+    return seen
+
+
 # Each step of the pass, in the order it runs.
 STEPS = {
     IMPORT_TICKETS: check_new_tickets,
     # Briefs run after the import, so a ticket born in this pass is briefed in it too.
     WRITE_BRIEFS: briefs.write_briefs,
+    # PRs come last: they are read against the tickets this pass already knows about.
+    IMPORT_PRS: check_new_prs,
 }
 
 

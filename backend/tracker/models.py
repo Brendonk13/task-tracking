@@ -293,3 +293,47 @@ class TicketBrief(models.Model):
         Session, null=True, blank=True, on_delete=models.SET_NULL, related_name="briefs"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PullRequest(models.Model):
+    """A pull request on GitHub, as the last cron pass saw it.
+
+    GitHub numbers pull requests per repository, so ``(repo, number)`` is the identity
+    and the id GitHub itself would use; the row is a cache of a thing this app does not
+    own and can never write to. Everything from GitHub is refreshed on every pass, so
+    nothing here is edited by hand, with one exception: ``ticket`` is the link between
+    GitHub's world and this one, and a human may correct a guess the cron got wrong.
+    """
+
+    repo = models.CharField(max_length=255)
+    number = models.IntegerField()
+    url = models.TextField()
+    title = models.TextField()
+    body = models.TextField(blank=True, default="")
+    branch = models.CharField(max_length=255, blank=True, default="")
+    head_sha = models.CharField(max_length=64, blank=True, default="")
+    # Lower-cased ``open``/``merged``/``closed``: ``gh`` shouts it, this API does not.
+    state = models.CharField(max_length=20)
+    author = models.CharField(max_length=255, blank=True, default="")
+    # The ticket this PR is work on. Null until something links them, because a PR can
+    # exist before anyone has raised the ticket for it.
+    ticket = models.ForeignKey(
+        "Ticket", null=True, blank=True, on_delete=models.SET_NULL, related_name="pull_requests"
+    )
+    # The last session that triaged this PR's comments; null until one has.
+    last_triage_session = models.ForeignKey(
+        Session,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="triaged_pull_requests",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["repo", "number"], name="unique_pull_request")
+        ]
+        # Newest PR first within a repo: that is the order a person scans them in.
+        ordering = ["repo", "-number"]

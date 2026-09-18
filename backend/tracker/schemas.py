@@ -413,3 +413,21 @@ class Alert(Schema):
     cron_run_id: int | None
     dismissed_at: datetime | None
     created_at: datetime
+
+
+class PullRequestItem(Schema):
+    """A pull request as this app last saw it on GitHub.
+
+    ``state`` is lower-cased on the way in, so it reads like every other state in this
+    API rather than like ``gh``'s shouting.
+    """
+
+    id: int
+    repo: str
+    number: int
+    url: str
+    title: str
+    branch: str
+    head_sha: str
+    state: str
+    author: str

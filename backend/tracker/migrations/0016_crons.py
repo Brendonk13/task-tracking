@@ -218,4 +218,57 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.CreateModel(
+            name="PullRequest",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("repo", models.CharField(max_length=255)),
+                ("number", models.IntegerField()),
+                ("url", models.TextField()),
+                ("title", models.TextField()),
+                ("body", models.TextField(blank=True, default="")),
+                ("branch", models.CharField(blank=True, default="", max_length=255)),
+                ("head_sha", models.CharField(blank=True, default="", max_length=64)),
+                ("state", models.CharField(max_length=20)),
+                ("author", models.CharField(blank=True, default="", max_length=255)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "last_triage_session",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="triaged_pull_requests",
+                        to="tracker.session",
+                    ),
+                ),
+                (
+                    "ticket",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="pull_requests",
+                        to="tracker.ticket",
+                    ),
+                ),
+            ],
+            options={
+                "ordering": ["repo", "-number"],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("repo", "number"), name="unique_pull_request"
+                    )
+                ],
+            },
+        ),
     ]

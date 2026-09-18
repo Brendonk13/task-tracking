@@ -311,3 +311,63 @@ def test_brief_written_but_missing_from_output_is_found_by_filename_pattern(
     assert served.status_code == 200, served.content
     assert "text/html" in served["Content-Type"], served["Content-Type"]
     assert served.content.decode() == html_body
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param({"returncode": 1, "stderr": "claude: credit balance too low"}, id="non_zero_exit"),
+        pytest.param({"timeout": True}, id="timed_out"),
+    ],
+)
+def test_failed_or_timed_out_claude_run_marks_session_failed_and_raises_cron_error(
+    client, cron_settings, fake_processes, linear_transport, failure
+):
+    """A headless run can die two ways, and both must leave the same clean wreckage
+    behind (§4 C2.6).
+
+    Either the binary exits non-zero — no credit, a bad flag, a crash — or it never
+    comes back and ``CLAUDE_SESSION_TIMEOUT_SECONDS`` kills it, which reaches us as a
+    ``TimeoutExpired`` rather than a result to parse. The distinction matters to the
+    code and to nobody else, so it is parametrized: in both cases the ticket must end
+    up with no brief (half a brief is worse than none), the session row must stop
+    claiming to be ``running`` or the sessions page shows a ghost forever, and a human
+    must be told through an alert. The alert carries the session itself, nested as the
+    ``Actor`` the rest of the API uses, so the alerts page can offer a resume button
+    straight from the failure. The run as a whole still finishes: one dead session is
+    not a dead cron.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", **failure)
+
+    run = run_cron(client)
+
+    assert fake_processes.calls_to("claude"), "no claude process was started at all"
+    assert run["status"] == "finished", run
+
+    con7 = next(
+        ticket
+        for ticket in client.get("/tickets").json()
+        if ticket["linear_identifier"] == "CON-7"
+    )
+    detail = client.get(f"/tickets/{con7['id']}").json()
+    assert detail["brief"] is None, detail["brief"]
+
+    sessions = [
+        session
+        for session in client.get("/sessions").json()
+        if session["ticket_id"] == con7["id"]
+    ]
+    assert len(sessions) == 1, sessions
+    session = sessions[0]
+    assert session["status"] == "failed", session
+
+    failures = [
+        alert
+        for alert in client.get("/alerts").json()
+        if alert["kind"] == "cron_error"
+        and (alert["session"] or {}).get("session_id") == session["session_id"]
+    ]
+    assert len(failures) == 1, client.get("/alerts").json()
+    assert failures[0]["session"]["name"] == session["name"]
+    assert failures[0]["session"]["directory"] == session["directory"]

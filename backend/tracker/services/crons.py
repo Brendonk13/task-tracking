@@ -5,18 +5,56 @@ The command and (later) the API are both thin wrappers over ``start_run`` and
 """
 
 import re
+import sys
+from pathlib import Path
 
 from django.conf import settings
 from django.utils import timezone
 
 from tracker import models
-from tracker.integrations import github, linear
+from tracker.integrations import github, linear, processes
 from tracker.services import briefs, pull_requests, tags, triage
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
     """Record a run as ``running`` before any work happens, so a crash is still visible."""
     return models.CronRun.objects.create(trigger=trigger, pid=pid)
+
+
+WORKER_DIR_NAME = "crons"
+"""The folder under ``CRON_WORK_DIR`` that keeps one log per detached worker."""
+
+
+def worker_log_path(run: models.CronRun) -> Path:
+    """Where a worker's output is kept, named after the run it belongs to.
+
+    Nobody is watching the terminal a detached worker would otherwise inherit, so a
+    traceback written on the way down would be lost. It lives under ``CRON_WORK_DIR``
+    beside the other things the cron owns, and is named after the run so the log of the
+    run you are looking at is the one you can find.
+    """
+    directory = Path(settings.CRON_WORK_DIR) / WORKER_DIR_NAME
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"run-{run.id}.log"
+
+
+def spawn_worker(run: models.CronRun) -> models.CronRun:
+    """Hand the run to a detached worker process and record its pid.
+
+    ``runserver`` autoreloads, so a run done inside the Django process would be killed
+    half-finished the next time a file is saved. The worker is therefore started in its
+    own session, which detaches it from the web process's process group and lets it
+    outlive the reload. It runs under the interpreter now serving the request so it sees
+    the same virtualenv, and its pid is stored so a later pass can tell a live run from
+    a stalled one.
+    """
+    log_path = worker_log_path(run)
+    argv = [sys.executable, str(settings.BASE_DIR / "manage.py"), "run_cron", str(run.id)]
+    with log_path.open("ab") as log:
+        worker = processes.popen(argv, stdout=log, stderr=log, start_new_session=True)
+    run.pid = worker.pid
+    run.save(update_fields=["pid"])
+    return run
 
 
 # What each step of the pass needs from the environment (§2). A step whose settings

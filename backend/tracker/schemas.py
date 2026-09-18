@@ -415,6 +415,13 @@ class CronRun(Schema):
     finished_at: datetime | None
 
 
+class CronsSummary(Schema):
+    """What the header needs to show a run in flight and what the last one did."""
+
+    running: bool
+    last_run: CronRun | None
+
+
 class PullRequestRef(Schema):
     """Just enough of a pull request to render a link to it."""
 

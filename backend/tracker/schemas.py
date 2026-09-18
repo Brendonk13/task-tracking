@@ -5,6 +5,7 @@ from pydantic import Field, field_validator, model_validator
 
 from tracker.models import (
     FINISHED_TASK_STATES,
+    AlertKind,
     CronRunStatus,
     CronRunTrigger,
     Priority,
@@ -372,3 +373,14 @@ class CronRun(Schema):
     started_at: datetime
     created_at: datetime
     finished_at: datetime | None
+
+
+class Alert(Schema):
+    id: int
+    kind: AlertKind
+    message: str
+    ticket_id: int | None
+    session_id: str | None
+    cron_run_id: int | None
+    dismissed_at: datetime | None
+    created_at: datetime

@@ -197,3 +197,39 @@ class CronRun(models.Model):
     class Meta:
         # Newest first: the API and the UI both want the latest run at the top.
         ordering = ["-started_at", "-id"]
+
+
+class AlertKind(models.TextChoices):
+    NEW_TICKET = "new_ticket"
+    PR_TRIAGED = "pr_triaged"
+    PR_UNLINKED = "pr_unlinked"
+    CRON_ERROR = "cron_error"
+
+
+class Alert(models.Model):
+    """Something that happened unattended and wants a human to look at it.
+
+    The cron runs without anyone watching, so anything it decides on its own — a ticket
+    it imported, a step it had to skip — leaves an alert behind. Every link is nullable
+    because an alert is about the event, not about any one row: a ``cron_error`` names a
+    run and no ticket, a ``new_ticket`` names a ticket and no run.
+    """
+
+    kind = models.CharField(max_length=20, choices=AlertKind.choices)
+    message = models.TextField()
+    ticket = models.ForeignKey(
+        Ticket, null=True, blank=True, on_delete=models.CASCADE, related_name="alerts"
+    )
+    session = models.ForeignKey(
+        Session, null=True, blank=True, on_delete=models.SET_NULL, related_name="alerts"
+    )
+    cron_run = models.ForeignKey(
+        CronRun, null=True, blank=True, on_delete=models.CASCADE, related_name="alerts"
+    )
+    # Null until a human clears it; the column doubles as "is this still open?".
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Newest first: the UI shows the most recent alerts at the top.
+        ordering = ["-created_at", "-id"]

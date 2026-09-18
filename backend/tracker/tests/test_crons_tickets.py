@@ -3,6 +3,7 @@ import json
 import pytest
 
 from tracker.tests.conftest import run_cron
+from tracker.tests.fakes import fixture_json
 
 pytestmark = pytest.mark.django_db
 
@@ -108,3 +109,30 @@ def test_linear_request_carries_the_raw_api_key_and_only_asks_for_active_issues(
 
     asked = query + json.dumps(body.get("variables") or {})
     assert cron_settings.LINEAR_ASSIGNEE_EMAIL in asked, asked
+
+
+def test_paginated_linear_results_are_all_imported(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """One run imports every page Linear offers, not just the first (§4 C1.5, §5).
+
+    Page 1 ends with ``hasNextPage: true`` and a cursor, so the import must ask for
+    the next page and import that one too. The issues and the cursor are read out of
+    the fixtures rather than spelled out here, so this stays a statement about "all
+    of both pages" — but the cursor is taken from page 1's ``pageInfo``, which is
+    where the server puts it, not rebuilt from the last node the way the client
+    would if it paged by itself.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    page1 = fixture_json("linear/assigned_page1.json")["data"]["issues"]
+    page2 = fixture_json("linear/assigned_page2.json")["data"]["issues"]
+    expected = sorted(node["identifier"] for node in page1["nodes"] + page2["nodes"])
+
+    run_cron(client)
+
+    tickets = client.get("/tickets").json()
+    assert sorted(t["linear_identifier"] for t in tickets) == expected
+
+    assert len(linear_transport.bodies) == 2, linear_transport.bodies
+    variables = linear_transport.bodies[1].get("variables") or {}
+    assert variables.get("after") == page1["pageInfo"]["endCursor"], variables

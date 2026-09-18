@@ -1,0 +1,55 @@
+{
+  "data": {
+    "issues": {
+      "nodes": [
+        {
+          "id": "6f0f1f3a-3b2e-4a27-9f19-0a1b2c3d4e5f",
+          "identifier": "CON-7",
+          "title": "External handoff dispatch drops the task id",
+          "description": "The dispatcher builds the redirect URL before the task exists, so the id is empty.\n\nSteps to reproduce are in the Slack thread.",
+          "priority": 1,
+          "url": "https://linear.app/avantos/issue/CON-7/external-handoff-dispatch-drops-the-task-id",
+          "branchName": "brendonkeirle/con-7-external-handoff-dispatch-drops-the-task-id",
+          "state": {
+            "name": "In Progress",
+            "type": "started"
+          },
+          "project": {
+            "name": "Action Platform"
+          },
+          "labels": {
+            "nodes": [
+              {
+                "name": "bug"
+              },
+              {
+                "name": "backend"
+              }
+            ]
+          }
+        },
+        {
+          "id": "9c4d5e6f-7a8b-49c0-b1d2-e3f4a5b6c7d8",
+          "identifier": "CON-8",
+          "title": "Document the SAML assertion signing keys",
+          "description": "",
+          "priority": 0,
+          "url": "https://linear.app/avantos/issue/CON-8/document-the-saml-assertion-signing-keys",
+          "branchName": "brendonkeirle/con-8-document-the-saml-assertion-signing-keys",
+          "state": {
+            "name": "Todo",
+            "type": "unstarted"
+          },
+          "project": null,
+          "labels": {
+            "nodes": []
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": "eyJpZCI6IkNPTi04In0="
+      }
+    }
+  }
+}

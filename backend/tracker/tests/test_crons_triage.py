@@ -1370,3 +1370,170 @@ def test_failed_triage_leaves_comments_pending_and_raises_cron_error(
     assert len(second_calls) == 2, fake_processes.argvs_to("claude")
     session_ids = [call.arg_after("--session-id") for call in second_calls]
     assert len(set(session_ids)) == 2, session_ids
+
+
+def test_briefs_and_triage_share_the_per_run_session_budget(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """One run has one allowance, and both steps spend out of it (§4 C4.11, §2).
+
+    ``CRON_MAX_SESSIONS_PER_RUN`` exists because every managed session is a paid
+    headless ``claude`` started unattended, and the machine this runs on has one CPU,
+    one network and one budget no matter which step asked for the process. A ceiling
+    that each step kept for itself would therefore not be a ceiling at all: briefs
+    would be allowed three and triage another three, so the real worst case would be
+    twice the number the setting names, and it would grow again with every step added
+    later. A morning that imports a backlog *and* finds a week of review comments is
+    exactly when that happens — both steps are busy in the same run — so the guarantee
+    has to be that the whole run starts at most ``CRON_MAX_SESSIONS_PER_RUN``
+    processes, however the work divides between them.
+
+    The arrangement makes four pieces of work and allows three. Linear serves one page
+    of exactly two issues (``assigned_two.json``, ``hasNextPage`` false), so the brief
+    step owes two sessions and no more; two of the captured pull requests are served a
+    review-comment feed with comments still waiting on an answer, so the triage step
+    owes two. Four owed, three allowed: the run must start three and leave one, and
+    the next run must start exactly that one. Nothing is dropped and nothing is
+    repeated, which is what the two ``--session-id`` sets say — they do not overlap,
+    and together they name four distinct sessions, one per piece of work.
+
+    Which three go first is deliberately not asserted. The steps run in a fixed order
+    (tickets, then PRs), so today the first run is two briefs and one triage, but that
+    is an implementation detail of the ordering, not of the budget; what the four calls
+    must add up to is both briefs and both triages, which is checked at the end by
+    reading the identifiers and PR numbers back out of the prompts. Each PR is served
+    its own copy of the capture, re-keyed so the comment ids and URLs differ — comment
+    identity is ``(kind, github_id)`` (§1), so two PRs sharing ids would silently be
+    one PR's worth of comments and the run would owe three sessions, not four.
+    """
+    linear_transport.serve("linear/assigned_two.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 3
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    imported = fixture_json("linear/assigned_two.json")["data"]["issues"]
+    assert imported["pageInfo"]["hasNextPage"] is False, imported["pageInfo"]
+    brief_identifiers = {issue["identifier"] for issue in imported["nodes"]}
+    assert len(brief_identifiers) == 2, brief_identifiers
+
+    triaged = fixture_json("gh/pr_list.json")[:2]
+    triaged_numbers = {pull_request["number"] for pull_request in triaged}
+    assert len(triaged_numbers) == 2, triaged_numbers
+
+    owed = len(brief_identifiers) + len(triaged_numbers)
+    assert owed == cron_settings.CRON_MAX_SESSIONS_PER_RUN + 1, owed
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    def feed_for(number: int, offset: int) -> str:
+        """The captured conversation, re-keyed so it belongs to this PR alone."""
+        comments = []
+        for comment in fixture_json("gh/review_comments.json"):
+            moved = {**comment, "id": comment["id"] + offset}
+            if comment.get("in_reply_to_id"):
+                moved["in_reply_to_id"] = comment["in_reply_to_id"] + offset
+            moved["url"] = (
+                f"https://api.github.com/repos/{PR_REPO}/pulls/comments/{moved['id']}"
+            )
+            moved["pull_request_url"] = (
+                f"https://api.github.com/repos/{PR_REPO}/pulls/{number}"
+            )
+            comments.append(moved)
+        return json.dumps(comments)
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    for index, pull_request in enumerate(triaged):
+        number = pull_request["number"]
+        serve_feed(f"/pulls/{number}/comments", feed_for(number, 1_000 * (index + 1)))
+
+    briefs_dir = Path(cron_settings.BRIEFS_DIR)
+
+    def write_the_brief(call: fakes.Call) -> None:
+        """Write the brief the way the skill does: one dated pair per identifier."""
+        identifier = (call.arg_after("-p") or " ").split()[1]
+        (briefs_dir / f"2026-09-17-{identifier}.md").write_text(f"# {identifier}\n")
+        (briefs_dir / f"2026-09-17-{identifier}.html").write_text(
+            f"<!doctype html><html><body><h1>{identifier}</h1></body></html>"
+        )
+
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+
+    def write_the_analysis(call: fakes.Call) -> None:
+        """Do what the skill does: write the analysis to the path the prompt named."""
+        triage_dir = Path(cron_settings.CRON_WORK_DIR) / "triage"
+        prompt = call.arg_after("-p") or ""
+        wanted = [
+            word.strip("'\"`,.;:()")
+            for word in re.split(r"\s+", prompt)
+            if word.strip("'\"`,.;:()").startswith(str(triage_dir) + "/")
+        ]
+        assert wanted, (triage_dir, prompt)
+        path = Path(wanted[0])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(analysis))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(), side_effect=write_the_brief)
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+            side_effect=write_the_analysis,
+        )
+    )
+
+    # Each PR needs a ticket to hang its triage on, and only an identifier in the
+    # linear_url can say which issue a hand-raised ticket belongs to (C1.7, C3.2).
+    for pull_request in triaged:
+        identifier = re.search(r"CON-\d+", pull_request["headRefName"], re.IGNORECASE)
+        assert identifier, pull_request["headRefName"]
+        key = identifier.group(0).upper()
+        raised = client.post(
+            "/tickets",
+            json={
+                "title": f"Hand-raised for {key}",
+                "linear_url": f"https://linear.app/avantos/issue/{key}/hand-raised",
+                "actor_session_id": "human",
+            },
+        )
+        assert raised.status_code == 201, raised.content
+
+    run_cron(client)
+
+    first_run = fake_processes.calls_to("claude")
+    assert len(first_run) == cron_settings.CRON_MAX_SESSIONS_PER_RUN, (
+        fake_processes.argvs_to("claude")
+    )
+
+    run_cron(client)
+
+    every_call = fake_processes.calls_to("claude")
+    second_run = every_call[len(first_run):]
+    assert len(second_run) == owed - cron_settings.CRON_MAX_SESSIONS_PER_RUN, (
+        fake_processes.argvs_to("claude")
+    )
+
+    first_ids = {call.arg_after("--session-id") for call in first_run}
+    second_ids = {call.arg_after("--session-id") for call in second_run}
+    assert first_ids & second_ids == set(), (first_ids, second_ids)
+    assert len(first_ids | second_ids) == owed, (first_ids, second_ids)
+
+    # Four sessions, and they are the four pieces of work: both briefs, both triages.
+    prompts = [call.arg_after("-p") or "" for call in every_call]
+    briefed = {
+        prompt.split()[1] for prompt in prompts if prompt.startswith("/ticket-brief ")
+    }
+    assert briefed == brief_identifiers, prompts
+    triage_prompts = [prompt for prompt in prompts if prompt.startswith(TRIAGE_SKILL)]
+    assert len(triage_prompts) == len(triaged_numbers), prompts
+    assert {
+        int(re.search(r"--pr (\d+)", prompt).group(1)) for prompt in triage_prompts
+    } == triaged_numbers, triage_prompts

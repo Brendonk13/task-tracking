@@ -8,11 +8,31 @@ argv while no ``claude`` is started.
 """
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
 from tracker.integrations import processes
+
+NESTED_SESSION_VARIABLES = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+"""The marks a Claude Code session leaves in the environment it hands to its children."""
+
+
+def _child_environment() -> dict[str, str]:
+    """This process's environment, minus the marks of the session that started us.
+
+    The backend is itself usually started from a Claude Code session, and every child
+    inherits that session's marks, so a headless ``claude`` we spawn would read them and
+    take itself for a nested run. Only those names are dropped: the session still needs
+    ``PATH``, ``HOME`` and the rest of the ambient environment to find its binary and its
+    credentials, so starting from an empty environment would break every real run.
+    """
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name not in NESTED_SESSION_VARIABLES
+    }
 
 
 def _as_text(output) -> str:
@@ -139,6 +159,7 @@ class ClaudeRunner:
             completed = processes.run(
                 self.build_command(request),
                 cwd=request.cwd,
+                env=_child_environment(),
                 capture_output=True,
                 text=True,
                 timeout=request.timeout,

@@ -83,6 +83,30 @@ def _reaches(ticket_id: int, sources: list[int], target: int, ignore_from: int) 
     return False
 
 
+def create(
+    ticket: models.Ticket,
+    *,
+    title: str,
+    description: str = "",
+    depends_on=(),
+) -> models.Task:
+    """Put one task on a ticket, with the dependencies it starts out blocked by.
+
+    Tasks are made from two directions — a person through the API and a cron session
+    from what it read — and both have to leave the same row behind, including the A8
+    bump that makes a new task count as activity on its ticket. The dependency ids are
+    taken as given: the caller that accepted them from outside is the one that has to
+    have checked them with ``validated_depends_on``, while a caller that just created
+    the task it points at already knows the edge is sound.
+    """
+    task = models.Task.objects.create(
+        ticket=ticket, title=title, description=description
+    )
+    task.depends_on.set(depends_on)
+    ticket.save()  # A8: a new task is ticket activity
+    return task
+
+
 def record(
     task: models.Task,
     kind: models.TaskHistoryKind,

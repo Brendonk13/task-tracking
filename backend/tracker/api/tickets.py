@@ -273,9 +273,10 @@ def list_tasks(request, ticket_id: int):
 def create_task(request, ticket_id: int, payload: schemas.TaskCreate):
     ticket, _actor = _ticket_and_actor(ticket_id, payload.actor_session_id)
     depends_on = task_service.validated_depends_on(ticket.id, payload.depends_on)
-    task = models.Task.objects.create(
-        ticket=ticket, title=payload.title, description=payload.description
+    task = task_service.create(
+        ticket,
+        title=payload.title,
+        description=payload.description,
+        depends_on=depends_on,
     )
-    task.depends_on.set(depends_on)
-    ticket.save()  # A8: a new task is ticket activity
     return Status(201, task_service.detail(task.id))

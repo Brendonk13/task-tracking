@@ -333,6 +333,18 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
+        migrations.AlterField(
+            model_name="taskhistoryentry",
+            name="kind",
+            field=models.CharField(
+                choices=[
+                    ("state_change", "State Change"),
+                    ("field_change", "Field Change"),
+                    ("created", "Created"),
+                ],
+                max_length=20,
+            ),
+        ),
         migrations.AddField(
             model_name="alert",
             name="pull_request",

@@ -188,6 +188,10 @@ class TaskDependency(models.Model):
 class TaskHistoryKind(models.TextChoices):
     STATE_CHANGE = "state_change"
     FIELD_CHANGE = "field_change"
+    # Where the task came from, written only when something other than a person made
+    # it: a task a cron session derived from its own output has no other place to say
+    # which run — and so which transcript — produced it.
+    CREATED = "created"
 
 
 class TaskHistoryEntry(models.Model):

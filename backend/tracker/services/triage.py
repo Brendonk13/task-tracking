@@ -9,13 +9,17 @@ working copy configured for that PR's repository, because a triage reads the dif
 the wrong checkout reads the wrong code.
 """
 
+import json
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from django.conf import settings
 
 from tracker import models
-from tracker.integrations.claude_runner import ClaudeRequest, ClaudeRunner
+from tracker.integrations.claude_runner import ClaudeRequest, ClaudeResult, ClaudeRunner
 from tracker.services import sessions
+from tracker.services import tasks as task_service
 
 OPEN = "open"
 """The state of a pull request still in flight, as a ``PullRequest`` row stores it."""
@@ -192,6 +196,183 @@ draft, and demanding one would only invite an invented answer.
 """
 
 
+TITLE_MAX_LENGTH = models.Task._meta.get_field("title").max_length
+"""Asked of the column rather than repeated, because a task title is built out of a
+reviewer's prose, which has no length limit at all."""
+
+SENTENCE_END = re.compile(r"(?<=[.!?])\s")
+"""Where one sentence of a reason stops, so a title can carry only its first."""
+
+
+@dataclass(frozen=True)
+class TriageItem:
+    """One judgement about one review comment.
+
+    The fields are the ones the cron acts on, and everything else the skill reports is
+    left in the analysis file: a task is made out of the comment, the verdict behind it,
+    the plan and the confidence, and nothing here decides anything a human cannot check
+    against the conversation the ``url`` points back at.
+    """
+
+    url: str = ""
+    comment: str = ""
+    verdict: str = ""
+    verdict_reason: str = ""
+    needs_code_change: bool = False
+    plan: list[str] = field(default_factory=list)
+    confidence: int | None = None
+    confidence_reason: str = ""
+    suggested_comment: str = ""
+    path: str = ""
+    line: int | None = None
+    author: str = ""
+
+
+@dataclass(frozen=True)
+class TriageAnalysis:
+    """What one triage run concluded about one pull request."""
+
+    summary: str = ""
+    items: list[TriageItem] = field(default_factory=list)
+
+    @property
+    def code_change_items(self) -> list[TriageItem]:
+        """The judgements that call for a change to the code.
+
+        The rest are answered in words rather than in code, which is a different piece
+        of work; making a task out of one would put something on the ticket that nobody
+        could ever do.
+        """
+        return [item for item in self.items if item.needs_code_change]
+
+
+def parse_analysis(payload) -> TriageAnalysis | None:
+    """Read one analysis object into something typed, or ``None`` if it is not one.
+
+    The run is unattended, so the payload is whatever a model chose to emit: prose, a
+    list, a half-filled object. Anything that is not an object with items is refused
+    here, and every field is read defensively, so a malformed analysis produces no
+    tasks rather than a task made of ``None``.
+    """
+    if not isinstance(payload, dict):
+        return None
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        return None
+    fields = {f.name for f in TriageItem.__dataclass_fields__.values()}
+    items = [
+        TriageItem(**{key: value for key, value in item.items() if key in fields})
+        for item in raw_items
+        if isinstance(item, dict)
+    ]
+    return TriageAnalysis(summary=str(payload.get("summary") or ""), items=items)
+
+
+def read_analysis(session: models.Session, result: ClaudeResult) -> TriageAnalysis | None:
+    """What the run concluded, from whichever of its two answers survived.
+
+    The prompt asks for the analysis twice on purpose (§5), because either copy can go
+    missing on its own: a long run can end without an envelope to parse, and a run that
+    answers in prose still leaves the file behind. The structured output is preferred
+    only because it needs no disk; the file is read when it is absent or unusable.
+    """
+    analysis = parse_analysis(result.structured)
+    if analysis is not None:
+        return analysis
+    try:
+        written = json.loads(Path(analysis_path(session)).read_text())
+    except (OSError, ValueError):
+        return None
+    return parse_analysis(written)
+
+
+def gate_title(pull_request: models.PullRequest) -> str:
+    """The name of the one task a human is meant to pick up first."""
+    return f"Human review of PR comment triage for PR #{pull_request.number}"
+
+
+def item_title(item: TriageItem) -> str:
+    """Name one piece of work by where it is and why it is being asked for.
+
+    The place comes first because that is what a person scanning a ticket recognises,
+    and only the first sentence of the reason follows: the rest of the argument is in
+    the description, and the column is finite where a reviewer's prose is not.
+    """
+    where = f"{item.path}:{item.line}" if item.path else item.author
+    reason = SENTENCE_END.split(item.verdict_reason.strip(), 1)[0]
+    return " - ".join(part for part in (where, reason) if part)[:TITLE_MAX_LENGTH]
+
+
+def item_description(item: TriageItem) -> str:
+    """Everything the gate — and later whoever does the work — has to decide on.
+
+    That is the reviewer's own words rather than a paraphrase of them, the verdict with
+    the confidence that was placed in it, every step of the plan (a plan missing its
+    last step is a different plan), and the link back to the conversation this task came
+    out of, which is the only way to check any of it.
+    """
+    lines = [f"> {line}" for line in (item.comment or "").splitlines() or ["> "]]
+    confidence = "" if item.confidence is None else f" ({item.confidence}%)"
+    lines += ["", f"Verdict: {item.verdict}{confidence}"]
+    if item.verdict_reason:
+        lines.append(item.verdict_reason)
+    if item.confidence_reason:
+        lines.append(f"Confidence: {item.confidence_reason}")
+    if item.plan:
+        lines += ["", "Plan:"] + [f"- {step}" for step in item.plan]
+    lines += ["", item.url]
+    return "\n".join(lines)
+
+
+def create_tasks(
+    pull_request: models.PullRequest,
+    session: models.Session,
+    analysis: TriageAnalysis,
+) -> list[models.Task]:
+    """Turn one analysis into work on the PR's ticket, behind a human gate.
+
+    The analysis is an opinion written unattended, so none of it becomes work anybody
+    may start until a person has agreed to it. The gate task is created first and
+    depends on nothing, which is what makes it the only startable piece; everything
+    derived from the analysis depends on it, and because ``blocked_by`` drops finished
+    dependencies, marking the gate done is the single act that releases the batch.
+
+    A PR with no ticket has nowhere to put any of this, so nothing is written at all
+    rather than tasks nobody would find.
+    """
+    ticket = pull_request.ticket
+    if ticket is None:
+        return []
+    gate = task_service.create(
+        ticket,
+        title=gate_title(pull_request),
+        description=(
+            f"Read the triage of PR #{pull_request.number} and decide which of the "
+            f"tasks below are worth doing. Nothing on this ticket can start until this "
+            f"task is done.\n\n{analysis.summary}"
+        ),
+    )
+    created = [gate]
+    for item in analysis.code_change_items:
+        created.append(
+            task_service.create(
+                ticket,
+                title=item_title(item),
+                description=item_description(item),
+                depends_on=[gate.id],
+            )
+        )
+    for task in created:
+        task_service.record(
+            task,
+            models.TaskHistoryKind.CREATED,
+            session.session_id,
+            f"{session.name} created this task from the triage of PR "
+            f"#{pull_request.number}",
+        )
+    return created
+
+
 def triage_dir() -> Path:
     """The directory triage analyses are written into, created if it is not there yet.
 
@@ -318,7 +499,7 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
             ticket=pull_request.ticket,
             cron_run=run,
         )
-        runner.run(
+        result = runner.run(
             ClaudeRequest(
                 prompt=triage_prompt(pull_request, analysis_path(session)),
                 cwd=directory,
@@ -334,5 +515,8 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
                 max_budget_usd=settings.CLAUDE_MAX_BUDGET_USD,
             )
         )
+        analysis = read_analysis(session, result)
+        if analysis is not None:
+            create_tasks(pull_request, session, analysis)
         started.append(session)
     return started

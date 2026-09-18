@@ -24,6 +24,50 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 SECRET_KEY = "django-insecure-task-tracking-local-dev-only"
 
+# ---- Crons (see README "Crons"). Every one of these is read from backend/.env.
+# A missing value is never guessed: the cron step that needs it is skipped and
+# records a `cron_error` alert naming the variable.
+
+# Linear personal API key, used read-only over GraphQL.
+LINEAR_API_KEY = os.environ.get("LINEAR_API_KEY", "")
+# Issues assigned to this person are the ones imported.
+LINEAR_ASSIGNEE_EMAIL = os.environ.get("LINEAR_ASSIGNEE_EMAIL", "")
+# GitHub login whose open PRs are imported, and whose comments count as answers.
+GITHUB_USER = os.environ.get("GITHUB_USER", "")
+# Repositories to import PRs from, comma separated: "owner/repo,owner/other".
+GITHUB_REPOS = [
+    repo.strip() for repo in os.environ.get("GITHUB_REPOS", "").split(",") if repo.strip()
+]
+
+
+def _repo_dirs(raw: str) -> dict[str, str]:
+    """Parse ``repo=path;repo=path`` into ``{repo: path}``."""
+    pairs = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        repo, _, path = entry.partition("=")
+        pairs[repo.strip()] = path.strip()
+    return pairs
+
+
+# Local checkout a session for a PR in that repo runs in.
+REPO_DIRS = _repo_dirs(os.environ.get("REPO_DIRS", ""))
+# Directory the /ticket-brief skill writes briefs into.
+BRIEFS_DIR = os.environ.get("BRIEFS_DIR", "")
+# The Claude Code executable used to spawn headless sessions.
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+CLAUDE_SESSION_TIMEOUT_SECONDS = int(
+    os.environ.get("CLAUDE_SESSION_TIMEOUT_SECONDS", "1800")
+)
+CLAUDE_MAX_BUDGET_USD = float(os.environ.get("CLAUDE_MAX_BUDGET_USD", "5"))
+# How many headless sessions one cron run may spawn, briefs and triage together.
+CRON_MAX_SESSIONS_PER_RUN = int(os.environ.get("CRON_MAX_SESSIONS_PER_RUN", "3"))
+# Scratch space for cron workers: logs and the triage analysis JSON.
+CRON_WORK_DIR = os.environ.get("CRON_WORK_DIR", str(BASE_DIR / "var"))
+
+
 DEBUG = True
 
 # Loopback only. A request whose Host header names anything else gets a 400.

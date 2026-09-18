@@ -316,6 +316,23 @@ class TicketBrief(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class PullRequestState(models.TextChoices):
+    """What GitHub says has become of a pull request, as a row stores it.
+
+    ``gh`` shouts the state and this app lower-cases it on the way in, so these are the
+    stored values exactly. The vocabulary lives beside the column rather than in the
+    services that ask about it, because "still in flight" was otherwise spelled out
+    once by the importer and again by triage, and two spellings of one state can drift.
+
+    ``state`` itself carries no ``choices``: GitHub owns this word, so a state this app
+    has not heard of yet must still be storable rather than refused by a validator.
+    """
+
+    OPEN = "open"
+    MERGED = "merged"
+    CLOSED = "closed"
+
+
 class PullRequest(models.Model):
     """A pull request on GitHub, as the last cron pass saw it.
 
@@ -333,7 +350,7 @@ class PullRequest(models.Model):
     body = models.TextField(blank=True, default="")
     branch = models.CharField(max_length=255, blank=True, default="")
     head_sha = models.CharField(max_length=64, blank=True, default="")
-    # Lower-cased ``open``/``merged``/``closed``: ``gh`` shouts it, this API does not.
+    # One of ``PullRequestState``: ``gh`` shouts it, this API does not.
     state = models.CharField(max_length=20)
     author = models.CharField(max_length=255, blank=True, default="")
     # The ticket this PR is work on. Null until something links them, because a PR can

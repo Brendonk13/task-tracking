@@ -4,7 +4,6 @@ The command and (later) the API are both thin wrappers over ``start_run`` and
 ``execute``, so a run behaves the same however it was triggered.
 """
 
-import re
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ from django.utils import timezone
 
 from tracker import models
 from tracker.integrations import github, linear, processes
-from tracker.services import briefs, pull_requests, tags, triage
+from tracker.services import briefs, linear_identifiers, pull_requests, tags, triage
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
@@ -104,10 +103,6 @@ WRITE_BRIEFS = "write ticket briefs"
 IMPORT_PRS = "import pull requests from GitHub"
 TRIAGE_PRS = "triage pull request comments"
 
-# The state ``gh`` gives a pull request that is still in flight, lower-cased the way a
-# ``PullRequest`` row stores it.
-OPEN = "open"
-
 STEP_SETTINGS = {
     IMPORT_TICKETS: ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
     WRITE_BRIEFS: ("CLAUDE_BIN", "BRIEFS_DIR", "REPO_DIRS"),
@@ -131,23 +126,6 @@ PRIORITY_BY_LINEAR = {
     3: models.Priority.MEDIUM,
     4: models.Priority.LOW,
 }
-
-
-# A Linear issue URL spells its identifier out after ``/issue/``, e.g.
-# https://linear.app/avantos/issue/CON-7/external-handoff-dispatch-drops-the-task-id
-LINEAR_ISSUE_URL = re.compile(r"/issue/(?P<identifier>[A-Za-z][A-Za-z0-9]*-\d+)")
-
-
-def identifier_in_url(url: str | None) -> str | None:
-    """The Linear identifier a URL points at, upper-cased, or ``None``.
-
-    People often raise the ticket here first and paste the Linear URL into it, leaving
-    ``linear_identifier`` blank. The URL is then the only place the identifier is
-    written down, so reading it back out is what lets the import recognise an issue it
-    already has a ticket for.
-    """
-    match = LINEAR_ISSUE_URL.search(url or "")
-    return match.group("identifier").upper() if match else None
 
 
 def missing_settings(step: str) -> list[str]:
@@ -249,7 +227,9 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
     known = set(models.Ticket.objects.values_list("linear_id", flat=True))
     unlinked = {}
     for ticket in models.Ticket.objects.filter(linear_id__isnull=True):
-        identifier = ticket.linear_identifier or identifier_in_url(ticket.linear_url)
+        identifier = ticket.linear_identifier or linear_identifiers.identifier_in_url(
+            ticket.linear_url
+        )
         if identifier:
             unlinked.setdefault(identifier.upper(), ticket)
 
@@ -325,9 +305,9 @@ def refresh_closed_prs(client, repo: str, still_open: list[int]) -> list[models.
     GitHub reports replaces the stale ``open`` — otherwise the row would claim the work is
     still in flight for as long as it exists.
     """
-    gone = models.PullRequest.objects.filter(repo=repo, state=OPEN).exclude(
-        number__in=still_open
-    )
+    gone = models.PullRequest.objects.filter(
+        repo=repo, state=models.PullRequestState.OPEN
+    ).exclude(number__in=still_open)
     refreshed = []
     for row in gone:
         row.state = client.pr(repo, row.number).state

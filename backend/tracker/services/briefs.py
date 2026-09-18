@@ -176,39 +176,25 @@ def store_brief(
     return brief
 
 
-def failure_reason(result: ClaudeResult) -> str:
-    """Why a run died, in the run's own words where it left any.
-
-    A killed session says nothing at all, so the timeout is stated by us; anything else
-    is quoted rather than worded ourselves, because the binary is the only thing that
-    knows whether it ran out of credit or choked on a flag.
-    """
-    if result.timed_out:
-        return f"timed out after {settings.CLAUDE_SESSION_TIMEOUT_SECONDS}s"
-    said = (result.stderr or result.result_text or "").strip()
-    exited = f"exited {result.exit_code}"
-    return f"{exited}: {said}" if said else exited
-
-
 def record_failure(
     ticket: models.Ticket, session: models.Session, result: ClaudeResult
 ) -> models.Alert:
     """Close out a dead brief run and tell a human about it.
 
     Nothing is stored about the brief: a run that died may have written half a file, and
-    half a brief on the ticket page is worse than none. The session stops claiming to be
-    ``running``, and the alert carries that session so the alerts page can offer to
-    resume the transcript straight from the failure, plus the cron run it belonged to
-    and the ticket it was about — none of which the message alone could be filtered by.
+    half a brief on the ticket page is worse than none. Closing the session and raising
+    the alert is what every dead managed run does, so ``sessions.record_failure`` does
+    it; what is this step's own is the wording — a human reading the alerts page has to
+    see which ticket's brief was lost — and the ticket the alert is filterable by.
     """
-    reason = failure_reason(result)
-    sessions.fail_session(session, last_message=result.stderr or result.result_text)
-    return models.Alert.objects.create(
-        kind=models.AlertKind.CRON_ERROR,
+    return sessions.record_failure(
+        session,
+        result,
         ticket=ticket,
-        session=session,
-        cron_run=session.cron_run,
-        message=f"Brief for {ticket.linear_identifier} failed: {reason}",
+        message=(
+            f"Brief for {ticket.linear_identifier} failed: "
+            f"{sessions.failure_reason(result)}"
+        ),
     )
 
 

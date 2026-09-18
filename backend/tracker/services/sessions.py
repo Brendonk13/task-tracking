@@ -1,9 +1,13 @@
-"""Sessions: naming them, and creating the ones this app starts itself.
+"""Sessions: naming them, and opening and closing the ones this app starts itself.
 
 A session registered through the API describes a process that already exists. A
 managed session is the opposite: the row has to exist before the process does, so a
 human watching the sessions page never sees a ``claude`` running with nothing to
 explain it, and so the crash of a run still leaves the session behind to be found.
+
+That also makes closing one this module's job rather than each caller's: a row written
+before its process cannot close itself, and a run that dies owes the same writes
+whether it was briefing a ticket or triaging a pull request.
 """
 
 import uuid
@@ -12,6 +16,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from tracker import models
+from tracker.integrations.claude_runner import ClaudeResult
 from tracker.services import names
 
 MAX_NAME_ATTEMPTS = 100
@@ -97,6 +102,53 @@ def fail_session(
     session.result_summary = summary
     session.save()
     return session
+
+
+def failure_reason(result: ClaudeResult) -> str:
+    """Why a run died, in the run's own words where it left any.
+
+    A killed session says nothing at all, so the timeout is stated by us; anything else
+    is quoted rather than worded ourselves, because the binary is the only thing that
+    knows whether it ran out of credit or choked on a flag.
+    """
+    if result.timed_out:
+        return f"timed out after {settings.CLAUDE_SESSION_TIMEOUT_SECONDS}s"
+    said = (result.stderr or result.result_text or "").strip()
+    exited = f"exited {result.exit_code}"
+    return f"{exited}: {said}" if said else exited
+
+
+def record_failure(
+    session: models.Session,
+    result: ClaudeResult,
+    *,
+    message: str,
+    ticket: models.Ticket | None = None,
+    pull_request: models.PullRequest | None = None,
+) -> models.Alert:
+    """Close a dead managed session out and leave the one alert that reports it.
+
+    Every managed run this app starts dies the same way and owes the same two writes: the
+    session stops claiming to be ``running``, and a ``cron_error`` carries it — so the
+    alerts page can name the run and resume its transcript — along with the cron run it
+    belonged to and whatever the run was about. That belongs here, beside the creating
+    and closing of managed sessions, rather than being written once per kind of run.
+
+    What differs between runs is only what a human is told and what the alert links to,
+    so the caller words the ``message`` (it knows whether a brief or a triage failed, and
+    which ticket or pull request by name) and names the rows it should be filterable by.
+    Nothing is inferred from the failure itself: a run that died produced nothing, so
+    nothing derived from its output is written here.
+    """
+    fail_session(session, last_message=result.stderr or result.result_text)
+    return models.Alert.objects.create(
+        kind=models.AlertKind.CRON_ERROR,
+        ticket=ticket,
+        pull_request=pull_request,
+        session=session,
+        cron_run=session.cron_run,
+        message=message,
+    )
 
 
 def remaining_session_budget(run: models.CronRun) -> int:

@@ -5,24 +5,9 @@ Linear identifier the author already wrote down somewhere on the PR, which is wh
 guess is only ever accepted when it names a ticket this app already knows.
 """
 
-import re
-
 from tracker import models
-from tracker.services import actors, changes, crons
-
-# A Linear identifier as it is written anywhere in prose: a team key, a dash, a number
-# (``CON-2386``). The same shape ``LINEAR_ISSUE_URL`` looks for after ``/issue/``, but
-# loose in a branch name or a sentence, where there is no ``/issue/`` to anchor it.
-IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9]*-\d+")
-
-
-def identifiers_in(text: str | None) -> list[str]:
-    """Every Linear identifier ``text`` spells, upper-cased, in the order written.
-
-    GitHub lower-cases the identifier in a branch name and shouts it in a title, so the
-    identifier is normalised here and nowhere else compares case.
-    """
-    return [match.group(0).upper() for match in IDENTIFIER.finditer(text or "")]
+from tracker.services import actors, changes
+from tracker.services.linear_identifiers import identifier_in_url, identifiers_in
 
 
 def tickets_by_identifier() -> dict[str, models.Ticket]:
@@ -34,7 +19,7 @@ def tickets_by_identifier() -> dict[str, models.Ticket]:
     """
     known: dict[str, models.Ticket] = {}
     for ticket in models.Ticket.objects.all():
-        identifier = ticket.linear_identifier or crons.identifier_in_url(ticket.linear_url)
+        identifier = ticket.linear_identifier or identifier_in_url(ticket.linear_url)
         if identifier:
             known.setdefault(identifier.upper(), ticket)
     return known

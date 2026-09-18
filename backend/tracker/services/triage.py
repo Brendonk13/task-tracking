@@ -22,14 +22,10 @@ from tracker.integrations.claude_runner import ClaudeRequest, ClaudeResult, Clau
 from tracker.services import sessions
 from tracker.services import tasks as task_service
 from tracker.services import tickets as ticket_service
-from tracker.services.briefs import failure_reason
 
 BLOCKED_STATUS = "blocked"
 """Where a triaged ticket lands: every task on it is behind a gate only a human can
 open, so the work genuinely cannot proceed."""
-
-OPEN = "open"
-"""The state of a pull request still in flight, as a ``PullRequest`` row stores it."""
 
 TRIAGE_MODEL = "opus"
 TRIAGE_EFFORT = "high"
@@ -507,21 +503,21 @@ def record_failure(
 
     A run that exited non-zero judged nothing, so nothing here is derived from it: no
     tasks, no block, no flag, no ``pr_triaged``. Inferring any of those from a crash
-    would send a person to a gate with nothing behind it. The session stops claiming to
-    be ``running``, and the only thing written is the failure itself — carrying the
-    session, so the alerts page can name it and resume its transcript, the pull request
-    whose triage is still owed, and the cron run it belonged to, none of which the
-    message alone could be filtered by.
+    would send a person to a gate with nothing behind it. Closing the session and
+    raising the failure is the same act for every dead managed run, so
+    ``sessions.record_failure`` does it; what is this step's own is naming the pull
+    request whose triage is still owed — in the message a person reads, and as a link
+    the alerts page can filter by, alongside the ticket it was work on.
     """
-    reason = failure_reason(result)
-    sessions.fail_session(session, last_message=result.stderr or result.result_text)
-    return models.Alert.objects.create(
-        kind=models.AlertKind.CRON_ERROR,
+    return sessions.record_failure(
+        session,
+        result,
         ticket=pull_request.ticket,
         pull_request=pull_request,
-        session=session,
-        cron_run=session.cron_run,
-        message=f"Triage of PR #{pull_request.number} failed: {reason}",
+        message=(
+            f"Triage of PR #{pull_request.number} failed: "
+            f"{sessions.failure_reason(result)}"
+        ),
     )
 
 
@@ -634,7 +630,9 @@ def pull_requests_needing_triage():
     """
     return [
         pull_request
-        for pull_request in models.PullRequest.objects.filter(state=OPEN)
+        for pull_request in models.PullRequest.objects.filter(
+            state=models.PullRequestState.OPEN
+        )
         if pending_comments(pull_request)
     ]
 

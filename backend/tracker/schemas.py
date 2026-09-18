@@ -342,12 +342,26 @@ class TaskDetail(Task):
         return obj.history.all()
 
 
+class TicketBrief(Schema):
+    """Where a ticket's brief was written; the bytes come from the brief endpoint."""
+
+    md_path: str
+    html_path: str
+
+
 class TicketDetail(TicketListItem):
     description: str
     parent: TicketRef | None
     children: list[TicketListItem]
     tasks: list[Task]
     timeline: list[TimelineEntry]
+    brief: TicketBrief | None
+
+    @staticmethod
+    def resolve_brief(obj):
+        # Reverse one-to-one: Django raises (an AttributeError subclass) when the
+        # ticket has no brief, which is the common case, so it is read as "none".
+        return getattr(obj, "brief", None)
 
     @staticmethod
     def resolve_children(obj):

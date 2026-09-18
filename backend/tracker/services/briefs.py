@@ -9,7 +9,7 @@ written about, because the skill reads that code.
 from django.conf import settings
 
 from tracker import models
-from tracker.integrations.claude_runner import ClaudeRequest, ClaudeRunner
+from tracker.integrations.claude_runner import ClaudeRequest, ClaudeResult, ClaudeRunner
 from tracker.services import sessions
 
 BRIEF_MODEL = "opus"
@@ -121,11 +121,50 @@ def tickets_needing_brief():
     )
 
 
+def store_brief(
+    ticket: models.Ticket, session: models.Session, structured
+) -> models.TicketBrief | None:
+    """Record where the run says it wrote the brief, so the ticket page can open it.
+
+    The paths are taken from the structured output rather than guessed from the naming
+    convention, because the skill is the only thing that knows what it actually wrote.
+    A ticket keeps one brief, so a later run about the same ticket replaces the paths
+    instead of leaving a reader to choose between two.
+    """
+    if not isinstance(structured, dict):
+        return None
+    md_path = structured.get("md_path")
+    html_path = structured.get("html_path")
+    if not md_path or not html_path:
+        return None
+    brief, _created = models.TicketBrief.objects.update_or_create(
+        ticket=ticket,
+        defaults={"md_path": md_path, "html_path": html_path, "session": session},
+    )
+    return brief
+
+
+def record_brief(
+    ticket: models.Ticket, session: models.Session, result: ClaudeResult
+) -> models.TicketBrief | None:
+    """Write down what one finished run produced: its brief, and its own closing state."""
+    structured = result.structured if isinstance(result.structured, dict) else {}
+    brief = store_brief(ticket, session, structured)
+    sessions.finish_session(
+        session,
+        last_message=result.result_text,
+        summary=structured.get("summary", ""),
+    )
+    return brief
+
+
 def write_briefs(run: models.CronRun) -> list[models.Session]:
-    """Start one brief session per ticket that needs one.
+    """Start one brief session per ticket that needs one, and record what it produced.
 
     The session row is written before the process is started, so the process is never
-    the only record that it exists.
+    the only record that it exists, and it is closed out as soon as that process is
+    done — a session left reading ``running`` after its process died would be a lie to
+    whoever is watching the sessions page.
     """
     runner = ClaudeRunner(settings.CLAUDE_BIN)
     directory = repo_directory()
@@ -139,7 +178,7 @@ def write_briefs(run: models.CronRun) -> list[models.Session]:
             ticket=ticket,
             cron_run=run,
         )
-        runner.run(
+        result = runner.run(
             ClaudeRequest(
                 prompt=brief_prompt(ticket),
                 cwd=directory,
@@ -156,5 +195,6 @@ def write_briefs(run: models.CronRun) -> list[models.Session]:
                 max_budget_usd=settings.CLAUDE_MAX_BUDGET_USD,
             )
         )
+        record_brief(ticket, session, result)
         started.append(session)
     return started

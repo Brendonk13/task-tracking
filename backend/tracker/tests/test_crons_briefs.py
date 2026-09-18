@@ -25,7 +25,9 @@ def test_new_ticket_gets_a_managed_session_linked_to_it_before_claude_is_invoked
     """
     linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
 
-    sessions_when_claude_started: list[list[dict]] = []
+    # What /sessions showed at the moment each claude was started, keyed by the
+    # --session-id that call carried: a run only makes a claim about its own session.
+    listed_when_started: dict[str, list[dict]] = {}
     fake_processes.on(
         "claude",
         stdout=fakes.claude_result(
@@ -36,8 +38,8 @@ def test_new_ticket_gets_a_managed_session_linked_to_it_before_claude_is_invoked
                 "summary": "CON-7 is a bug in the external handoff dispatcher.",
             }
         ),
-        side_effect=lambda call: sessions_when_claude_started.append(
-            client.get("/sessions").json()
+        side_effect=lambda call: listed_when_started.__setitem__(
+            call.arg_after("--session-id"), client.get("/sessions").json()
         ),
     )
 
@@ -50,13 +52,17 @@ def test_new_ticket_gets_a_managed_session_linked_to_it_before_claude_is_invoked
         for ticket in client.get("/tickets").json()
         if ticket["linear_identifier"] == "CON-7"
     )
-    already_listed = {
-        session["session_id"]: session
-        for snapshot in sessions_when_claude_started
-        for session in snapshot
-    }
-    for_con7 = [s for s in already_listed.values() if s["ticket_id"] == con7["id"]]
-    assert len(for_con7) == 1, already_listed
+    con7_session_id = next(
+        s["session_id"]
+        for s in client.get("/sessions").json()
+        if s["ticket_id"] == con7["id"]
+    )
+    for_con7 = [
+        s
+        for s in listed_when_started[con7_session_id]
+        if s["session_id"] == con7_session_id
+    ]
+    assert len(for_con7) == 1, listed_when_started[con7_session_id]
 
     session = for_con7[0]
     assert session["purpose"] == "ticket_brief"

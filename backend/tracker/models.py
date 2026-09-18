@@ -274,3 +274,22 @@ class Alert(models.Model):
     class Meta:
         # Newest first: the UI shows the most recent alerts at the top.
         ordering = ["-created_at", "-id"]
+
+
+class TicketBrief(models.Model):
+    """Where the brief for a ticket landed on disk, as the session that wrote it said.
+
+    The brief is two files a Claude Code session wrote, not rows in this database, so
+    all that is kept here is the pointer a human opens it by. One per ticket, because a
+    later run describes the same ticket again and replaces what it said.
+    """
+
+    ticket = models.OneToOneField(Ticket, on_delete=models.CASCADE, related_name="brief")
+    md_path = models.TextField()
+    html_path = models.TextField()
+    # The run that produced it, kept so a reader can resume the transcript behind a
+    # brief; null once that session row is gone.
+    session = models.ForeignKey(
+        Session, null=True, blank=True, on_delete=models.SET_NULL, related_name="briefs"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)

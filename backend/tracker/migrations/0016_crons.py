@@ -183,4 +183,39 @@ class Migration(migrations.Migration):
                 "ordering": ["-created_at", "-id"],
             },
         ),
+        migrations.CreateModel(
+            name="TicketBrief",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("md_path", models.TextField()),
+                ("html_path", models.TextField()),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "session",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="briefs",
+                        to="tracker.session",
+                    ),
+                ),
+                (
+                    "ticket",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="brief",
+                        to="tracker.ticket",
+                    ),
+                ),
+            ],
+        ),
     ]

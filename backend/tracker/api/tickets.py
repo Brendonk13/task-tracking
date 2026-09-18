@@ -1,7 +1,9 @@
 from enum import Enum
+from pathlib import Path
 from typing import List
 
 from django.db.models import Case, IntegerField, Prefetch, Value, When
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from ninja import Query, Router
 from ninja.errors import HttpError
@@ -41,7 +43,7 @@ def _tickets():
 def _detail(ticket_id: int) -> models.Ticket:
     """Load one ticket as ``TicketDetail`` needs it: tags, parent, children, timeline, actors."""
     ticket = get_object_or_404(
-        _tickets().select_related("parent").prefetch_related(
+        _tickets().select_related("parent", "brief").prefetch_related(
             Prefetch("timeline", queryset=models.TimelineEntry.objects.order_by("created_at", "id")),
             Prefetch("children", queryset=_tickets().order_by("created_at", "id")),
             Prefetch("tasks", queryset=task_service.queryset().order_by("created_at", "id")),
@@ -235,6 +237,20 @@ def set_needs_human_eyes(request, ticket_id: int, payload: schemas.NeedsHumanEye
 @router.get("/{int:ticket_id}", response=schemas.TicketDetail)
 def get_ticket(request, ticket_id: int):
     return _detail(ticket_id)
+
+
+@router.get("/{int:ticket_id}/brief", include_in_schema=False)
+def get_brief(request, ticket_id: int):
+    """Serve the HTML brief a session wrote for this ticket.
+
+    This is the only endpoint that answers with a file rather than JSON: the brief is
+    a page a human opens in a browser, so it is kept out of the OpenAPI document and
+    out of the generated frontend client, which describe the JSON contract alone.
+    """
+    brief = get_object_or_404(models.TicketBrief, ticket_id=ticket_id)
+    return HttpResponse(
+        Path(brief.html_path).read_bytes(), content_type="text/html; charset=utf-8"
+    )
 
 
 @router.get("/{int:ticket_id}/tasks", response=List[schemas.Task])

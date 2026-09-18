@@ -8,6 +8,8 @@ explain it, and so the crash of a run still leaves the session behind to be foun
 
 import uuid
 
+from django.utils import timezone
+
 from tracker import models
 from tracker.services import names
 
@@ -54,3 +56,23 @@ def create_managed_session(
         ticket=ticket,
         cron_run=cron_run,
     )
+
+
+def finish_session(
+    session: models.Session, *, last_message: str, summary: str = ""
+) -> models.Session:
+    """Close a managed session out once the process it describes has ended.
+
+    A row written before the process cannot close itself, so the caller that waited on
+    the run says how it went. ``last_message`` is what the run itself said, kept
+    verbatim because the sessions page shows it the same way it shows a manual
+    session's own last message; ``result_summary`` is the run's own verdict, for
+    readers who want the answer without opening the artefact.
+    """
+    session.status = models.SessionStatus.FINISHED
+    session.finished_at = timezone.now()
+    session.last_message = last_message
+    session.last_message_at = session.finished_at
+    session.result_summary = summary
+    session.save()
+    return session

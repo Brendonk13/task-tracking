@@ -1,4 +1,6 @@
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -229,3 +231,115 @@ def test_pr_with_no_pending_comments_spawns_no_session(
         if TRIAGE_SKILL in (call.arg_after("-p") or "")
     ]
     assert triage_calls == [], fake_processes.argvs_to("claude")
+
+
+def test_triage_prompt_targets_the_pr_and_asks_for_the_analysis_json_at_a_path_under_cron_work_dir(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """The argv the real ``claude`` would have seen for a triage run (§4 C4.3, §5).
+
+    Three things have to be true of this invocation or the run cannot use what comes
+    back. The prompt has to name the skill with the arguments the skill itself takes —
+    ``--pr``, ``--repo``, ``--user`` — because the skill reads the PR from GitHub, and a
+    triage aimed at the wrong number or the wrong login judges comments that belong to
+    somebody else. The prompt has to name a concrete absolute file for the analysis, and
+    that file has to sit under ``CRON_WORK_DIR/triage/``: the run parses the JSON
+    afterwards, so it must know where to look, and it must be somewhere the cron owns
+    rather than inside the checkout, which the triage is forbidden to touch. That same
+    directory has to appear in ``--add-dir``, or the session is asked to write to a path
+    it has no access to and returns with nothing written.
+
+    The schema is the last piece: it is what makes the reply a list of judgements rather
+    than prose. Each item must carry the verdict, whether code has to change, the plan
+    and the confidence, because C4.5 turns exactly those into task text, and a
+    ``suggested_comment`` must be permitted but not demanded — a comment needing a code
+    change has no reply to draft, so requiring one would invite the model to invent it.
+
+    The expected repo, user and work directory are read from ``cron_settings``, and the
+    PR number from the ``gh`` capture, so nothing here is a literal copied from the
+    production code. The setup is C4.2's: one PR with comments still waiting on an
+    answer, every other feed empty, the session budget raised so briefs cannot crowd the
+    triage out.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+
+    run_cron(client)
+
+    triage_calls = [
+        call
+        for call in fake_processes.calls_to("claude")
+        if TRIAGE_SKILL in (call.arg_after("-p") or "")
+    ]
+    assert len(triage_calls) == 1, fake_processes.argvs_to("claude")
+    call = triage_calls[0]
+
+    prompt = call.arg_after("-p") or ""
+    expected_start = (
+        f"{TRIAGE_SKILL} --pr {number} --repo {PR_REPO} --user {cron_settings.GITHUB_USER}"
+    )
+    assert prompt.startswith(expected_start), prompt
+
+    triage_dir = str(Path(cron_settings.CRON_WORK_DIR) / "triage")
+    analysis_paths = [
+        word
+        for word in re.split(r"\s+", prompt)
+        if word.strip("'\"`,.;:()").startswith(triage_dir + "/")
+    ]
+    assert analysis_paths, (triage_dir, prompt)
+
+    assert triage_dir in call.values_after("--add-dir"), call.argv
+
+    schema = json.loads(call.arg_after("--json-schema") or "")
+    items = schema.get("properties", {}).get("items", {})
+    assert items.get("type") == "array", schema
+    item = items.get("items", {})
+    assert {"verdict", "needs_code_change", "plan", "confidence"} <= set(
+        item.get("required", [])
+    ), item
+    assert "suggested_comment" in item.get("properties", {}), item
+    assert "suggested_comment" not in item.get("required", []), item

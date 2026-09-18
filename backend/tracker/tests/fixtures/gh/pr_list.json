@@ -1,0 +1,53 @@
+[
+  {
+    "author": {
+      "id": "MDQ6VXNlcjM2MjAzOTQw",
+      "is_bot": false,
+      "login": "Brendonk13",
+      "name": ""
+    },
+    "body": "## Description\r\n\r\nadd AWS secrets manager and environment variable for stratos workloads for signing SAML assertions\r\n\r\n## Checklist:\r\n\r\n\r\n- [x] I have done a self review of my code.\r\n- [ ] I have updated the documentation / READMEs where necessary.\r\n- [ ] I have added tests to cover my changes.\r\n- [ ] All new and existing tests passed.\r\n- [ ] I have looked for existing abstractions (helper functions, React components) that AI-generated code may not be using\r\n- [ ] (Frontend Only) I have included a screen recording of the existing/desired behavior.\r\n\r\n## Deploy Label _(Pilot Users Only)_\r\n\n<!-- devin-review-badge-begin -->\n\n---\n\n<a href=\"https://app.devin.ai/review/mosaic-avantos/avantos/pull/10264\" target=\"_blank\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://static.devin.ai/assets/gh-devin-review-dark.svg?v=4\"><img src=\"https://static.devin.ai/assets/gh-devin-review-light.svg?v=4\" alt=\"Devin Review\"></picture></a>\n<!-- devin-review-badge-end -->",
+    "createdAt": "2026-09-17T19:22:22Z",
+    "headRefName": "brendonkeirle/con-2513-add-sei-public-key-for-encrypting-saml",
+    "headRefOid": "5ccc11caacdbf528b01df78b399341fcc9c6bccb",
+    "number": 10264,
+    "state": "OPEN",
+    "title": "Brendonkeirle/con 2513 add sei public key for encrypting saml",
+    "updatedAt": "2026-09-18T13:24:28Z",
+    "url": "https://github.com/mosaic-avantos/avantos/pull/10264"
+  },
+  {
+    "author": {
+      "id": "MDQ6VXNlcjM2MjAzOTQw",
+      "is_bot": false,
+      "login": "Brendonk13",
+      "name": ""
+    },
+    "body": "\r\n## Description\r\n\r\nThis test has already been fixed by CON-2416 (#9793) \r\nSo I just un-skipped it\r\n\r\nrobot Details:\r\n\r\nCON-2383 skipped this test because typed keystrokes intermittently reached the auto-save payload truncated (\"llo\" instead of \"hello\").\r\n\r\nCON-2416 (#9793) later fixed that race in the shared test DSL: FormPage.editableField waits for the \"Updating\" overlay to clear and the input to be enabled before typing, and a `delay: null` typist sends the whole value in one task so a mid-word re-render cannot drop the tail. The skip has been stale since that landed.\r\n\r\nVerified with 25 consecutive runs under CPU contention, all passing.\r\n\r\n## Checklist:\r\n\r\n- [x] I have done a self review of my code.\r\n- [ ] I have updated the documentation / READMEs where necessary.\r\n- [ ] I have added tests to cover my changes.\r\n- [ ] All new and existing tests passed.\r\n- [ ] I have looked for existing abstractions (helper functions, React components) that AI-generated code may not be using\r\n- [ ] (Frontend Only) I have included a screen recording of the existing/desired behavior.\r\n\r\n## Deploy Label _(Pilot Users Only)_\r\n\r\n\n<!-- devin-review-badge-begin -->\n\n---\n\n<a href=\"https://app.devin.ai/review/mosaic-avantos/avantos/pull/10172\" target=\"_blank\">\n  <picture>\n    <source media=\"(prefers-color-scheme: dark)\" srcset=\"https://static.devin.ai/assets/gh-devin-review-dark.svg?v=3\">\n    <img src=\"https://static.devin.ai/assets/gh-devin-review-light.svg?v=3\" alt=\"Devin Review\">\n  </picture>\n</a>\n<!-- devin-review-badge-end -->",
+    "createdAt": "2026-09-15T15:40:55Z",
+    "headRefName": "brendonkeirle/con-2386-fix-flaky-test",
+    "headRefOid": "557ad7f8f9abeaf72b6d62d085ef0bf9f641916f",
+    "number": 10172,
+    "state": "OPEN",
+    "title": "[CON-2386] Unskip Forms auto-save validation test",
+    "updatedAt": "2026-09-15T18:47:46Z",
+    "url": "https://github.com/mosaic-avantos/avantos/pull/10172"
+  },
+  {
+    "author": {
+      "id": "MDQ6VXNlcjM2MjAzOTQw",
+      "is_bot": false,
+      "login": "Brendonk13",
+      "name": ""
+    },
+    "body": "## Description\r\n\r\nClaude kept assuming we were multi-tenant and making fixes based on that, so I updated AGENTS.md to reflect that.\r\n\r\nAlso added a reference the the terminology/README.md file\r\n\r\n## Checklist:\r\n\r\n- [x] I have done a self review of my code.\r\n- [ ] I have updated the documentation / READMEs where necessary.\r\n- [ ] I have added tests to cover my changes.\r\n- [x] All new and existing tests passed.\r\n- [ ] I have looked for existing abstractions (helper functions, React components) that AI-generated code may not be using\r\n- [ ] (Frontend Only) I have included a screen recording of the existing/desired behavior.\r\n\r\n## Deploy Label _(Pilot Users Only)_\r\n<!-- devin-review-badge-begin -->\r\n\r\n---\r\n\r\n<a href=\"https://app.devin.ai/review/mosaic-avantos/avantos/pull/9234\" target=\"_blank\">\r\n  <picture>\r\n    <source media=\"(prefers-color-scheme: dark)\" srcset=\"https://static.devin.ai/assets/gh-open-in-devin-review-dark.svg?v=1\">\r\n    <img src=\"https://static.devin.ai/assets/gh-open-in-devin-review-light.svg?v=1\" alt=\"Open in Devin Review\">\r\n  </picture>\r\n</a>\r\n<!-- devin-review-badge-end -->",
+    "createdAt": "2026-08-11T02:32:40Z",
+    "headRefName": "brendonkeirle/con-2223-add-product-deployment-context-section-to-root-agentsmd",
+    "headRefOid": "925212ec512b4c261628d23948b422a1faf94cc3",
+    "number": 9234,
+    "state": "OPEN",
+    "title": "update agents.md with product and deployment context section",
+    "updatedAt": "2026-08-27T22:18:15Z",
+    "url": "https://github.com/mosaic-avantos/avantos/pull/9234"
+  }
+]

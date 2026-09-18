@@ -1,0 +1,162 @@
+{
+  "duration_api_ms": 118582,
+  "stop_reason": "tool_use",
+  "session_id": "666b78f1-0fa4-4cd6-8471-85af487e2482",
+  "total_cost_usd": 1.031482,
+  "usage": {
+    "input_tokens": 22,
+    "cache_creation_input_tokens": 57182,
+    "cache_read_input_tokens": 406304,
+    "output_tokens": 10256,
+    "output_tokens_details": {
+      "thinking_tokens": 1532
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 57182,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [],
+    "speed": "standard"
+  },
+  "modelUsage": {
+    "claude-opus-5": {
+      "inputTokens": 22,
+      "outputTokens": 10256,
+      "cacheReadInputTokens": 406304,
+      "cacheCreationInputTokens": 57182,
+      "webSearchRequests": 0,
+      "costUSD": 1.031482,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 64000,
+      "thinkingTokens": 1532,
+      "canonicalModel": "claude-opus-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [
+    {
+      "tool_name": "Bash",
+      "tool_use_id": "toolu_017R9nhkoXi6xm7nS4XxrqvC",
+      "tool_input": {
+        "command": "cat ~/.claude/skills/github-pr-comment-triage/references/validity-rubric.md",
+        "description": "Read validity rubric"
+      }
+    }
+  ],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "is_error": false,
+  "num_turns": 20,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "{\"pr\": {\"number\": 10172, \"title\": \"[CON-2386] Unskip Forms auto-save validation test\", \"url\": \"https://github.com/mosaic-avantos/avantos/pull/10172\", \"headRefName\": \"brendonkeirle/con-2386-fix-flaky-test\", \"headRefOid\": \"9b1c0a7f4e2d8c3b5a6f7e8d9c0b1a2f3e4d5c6b\"}, \"summary\": \"Three unanswered comments on PR 10172. Two ask for a code change and one is a bot summary that only needs a reply.\", \"items\": [{\"id\": \"C1\", \"url\": \"https://github.com/mosaic-avantos/avantos/pull/10172#discussion_r3983457063\", \"path\": \"backend/internal/server/handlers_action_graph.go\", \"line\": 244, \"author\": \"garciavalter\", \"comment\": \"nit: dropping the ' or ' here and at 244 is unrelated to this PR. It also changes the error string two other tests assert on.\", \"verdict\": \"valid\", \"needs_code_change\": true, \"verdict_reason\": \"The separator change is out of scope and two tests assert the old string.\", \"background\": \"The handler builds one error message from the missing field names. Two table tests compare the whole string, so the separator is part of the contract they check.\", \"plan\": [\"Restore ' or ' as the separator in handlers_action_graph.go:236 and :244.\", \"Run go test ./internal/server -run TestActionGraphMissingFields.\", \"Keep the rest of the diff, which is the actual fix.\"], \"confidence\": 88, \"confidence_reason\": \"The two asserting tests are easy to find and both name the separator.\", \"suggested_comment\": \"Agreed, that was unrelated churn. Reverted in the next push; the two table tests pass again.\", \"evidence\": [\"backend/internal/server/handlers_action_graph_test.go:118 - asserts the joined message with ' or '.\"]}, {\"id\": \"C2\", \"url\": \"https://github.com/mosaic-avantos/avantos/pull/10172#discussion_r3983528582\", \"path\": \"typescript/journey-builder/src/containers/diagram/__tests__/nodeMapping.test.ts\", \"line\": 41, \"author\": \"garciavalter\", \"comment\": \"this passes for any string that is not a node type, so it cannot fail. Assert on the mapped value instead.\", \"verdict\": \"valid\", \"needs_code_change\": true, \"verdict_reason\": \"The assertion compares against undefined, which every unknown key returns, so the test cannot fail.\", \"background\": \"nodeMapping returns undefined for unknown keys. The test feeds it 'not-a-node' and expects undefined, which holds whatever the mapping contains.\", \"plan\": [\"Assert nodeMapping('form') equals the FormNode component.\", \"Keep one negative case, but assert the exact undefined for a key the mapping owns.\"], \"confidence\": 92, \"confidence_reason\": \"The test body is three lines and the mapping is a plain object literal.\", \"evidence\": []}, {\"id\": \"R1\", \"url\": \"https://github.com/mosaic-avantos/avantos/pull/10172#pullrequestreview-5144831609\", \"author\": \"devin-ai-integration[bot]\", \"comment\": \"Devin Review found 10 potential issues.\", \"verdict\": \"invalid\", \"needs_code_change\": false, \"verdict_reason\": \"The summary repeats the inline findings, which are answered in their own threads.\", \"background\": \"Devin posts one review summary plus one inline comment per finding. The inline threads on this PR are all answered.\", \"plan\": [], \"confidence\": 95, \"confidence_reason\": \"Each finding in the summary links to an inline thread that already has a reply.\", \"suggested_comment\": \"All ten findings are answered in their inline threads; nothing here needs a separate change.\", \"evidence\": []}]}",
+  "structured_output": {
+    "pr": {
+      "number": 10172,
+      "title": "[CON-2386] Unskip Forms auto-save validation test",
+      "url": "https://github.com/mosaic-avantos/avantos/pull/10172",
+      "headRefName": "brendonkeirle/con-2386-fix-flaky-test",
+      "headRefOid": "9b1c0a7f4e2d8c3b5a6f7e8d9c0b1a2f3e4d5c6b"
+    },
+    "summary": "Three unanswered comments on PR 10172. Two ask for a code change and one is a bot summary that only needs a reply.",
+    "items": [
+      {
+        "id": "C1",
+        "url": "https://github.com/mosaic-avantos/avantos/pull/10172#discussion_r3983457063",
+        "path": "backend/internal/server/handlers_action_graph.go",
+        "line": 244,
+        "author": "garciavalter",
+        "comment": "nit: dropping the ' or ' here and at 244 is unrelated to this PR. It also changes the error string two other tests assert on.",
+        "verdict": "valid",
+        "needs_code_change": true,
+        "verdict_reason": "The separator change is out of scope and two tests assert the old string.",
+        "background": "The handler builds one error message from the missing field names. Two table tests compare the whole string, so the separator is part of the contract they check.",
+        "plan": [
+          "Restore ' or ' as the separator in handlers_action_graph.go:236 and :244.",
+          "Run go test ./internal/server -run TestActionGraphMissingFields.",
+          "Keep the rest of the diff, which is the actual fix."
+        ],
+        "confidence": 88,
+        "confidence_reason": "The two asserting tests are easy to find and both name the separator.",
+        "suggested_comment": "Agreed, that was unrelated churn. Reverted in the next push; the two table tests pass again.",
+        "evidence": [
+          "backend/internal/server/handlers_action_graph_test.go:118 - asserts the joined message with ' or '."
+        ]
+      },
+      {
+        "id": "C2",
+        "url": "https://github.com/mosaic-avantos/avantos/pull/10172#discussion_r3983528582",
+        "path": "typescript/journey-builder/src/containers/diagram/__tests__/nodeMapping.test.ts",
+        "line": 41,
+        "author": "garciavalter",
+        "comment": "this passes for any string that is not a node type, so it cannot fail. Assert on the mapped value instead.",
+        "verdict": "valid",
+        "needs_code_change": true,
+        "verdict_reason": "The assertion compares against undefined, which every unknown key returns, so the test cannot fail.",
+        "background": "nodeMapping returns undefined for unknown keys. The test feeds it 'not-a-node' and expects undefined, which holds whatever the mapping contains.",
+        "plan": [
+          "Assert nodeMapping('form') equals the FormNode component.",
+          "Keep one negative case, but assert the exact undefined for a key the mapping owns."
+        ],
+        "confidence": 92,
+        "confidence_reason": "The test body is three lines and the mapping is a plain object literal.",
+        "evidence": []
+      },
+      {
+        "id": "R1",
+        "url": "https://github.com/mosaic-avantos/avantos/pull/10172#pullrequestreview-5144831609",
+        "author": "devin-ai-integration[bot]",
+        "comment": "Devin Review found 10 potential issues.",
+        "verdict": "invalid",
+        "needs_code_change": false,
+        "verdict_reason": "The summary repeats the inline findings, which are answered in their own threads.",
+        "background": "Devin posts one review summary plus one inline comment per finding. The inline threads on this PR are all answered.",
+        "plan": [],
+        "confidence": 95,
+        "confidence_reason": "Each finding in the summary links to an inline thread that already has a reply.",
+        "suggested_comment": "All ten findings are answered in their inline threads; nothing here needs a separate change.",
+        "evidence": []
+      }
+    ]
+  },
+  "ttft_ms": 1395,
+  "type": "result",
+  "duration_ms": 122646,
+  "uuid": "dee6a91f-1f9f-4605-bb2e-bdc8b2f25677",
+  "ttft_stream_ms": 847,
+  "time_to_request_ms": 46,
+  "first_content_frame_ms": 847,
+  "queued_turn_count": 0
+}

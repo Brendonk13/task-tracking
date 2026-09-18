@@ -1,0 +1,279 @@
+[
+  {
+    "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983326316",
+    "pull_request_review_id": 5172086818,
+    "id": 3983326316,
+    "node_id": "PRRC_kwDOMpqRhs7tbLxs",
+    "diff_hunk": "@@ -0,0 +1,83 @@\n+// Command fake-sp runs the local stand-in for the external service provider's\n+// assertion consumer service, so the whole external handoff round trip can be driven\n+// in a browser without the real service provider.\n+//\n+// It must never be deployed. It redirects wherever RelayState points and trusts",
+    "path": "backend/cmd/fake-sp/main.go",
+    "commit_id": "96d31d87030cfd72313327cb93d2ad36a64a2c23",
+    "original_commit_id": "8d7bb5732a9b3a085a9340d861d1f592a2347a8d",
+    "user": {
+      "login": "garciavalter",
+      "id": 54906707,
+      "node_id": "MDQ6VXNlcjU0OTA2NzA3",
+      "avatar_url": "https://avatars.githubusercontent.com/u/54906707?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/garciavalter",
+      "html_url": "https://github.com/garciavalter",
+      "followers_url": "https://api.github.com/users/garciavalter/followers",
+      "following_url": "https://api.github.com/users/garciavalter/following{/other_user}",
+      "gists_url": "https://api.github.com/users/garciavalter/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/garciavalter/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/garciavalter/subscriptions",
+      "organizations_url": "https://api.github.com/users/garciavalter/orgs",
+      "repos_url": "https://api.github.com/users/garciavalter/repos",
+      "events_url": "https://api.github.com/users/garciavalter/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/garciavalter/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "the Dockerfile builds `./cmd/$APP` from a build arg, so nothing but this comment stops `APP=fake-sp` producing a deployable open redirect.",
+    "created_at": "2026-09-10T20:43:49Z",
+    "updated_at": "2026-09-10T20:43:49Z",
+    "html_url": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r3983326316",
+    "pull_request_url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983326316"
+      },
+      "html": {
+        "href": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r3983326316"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983326316/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": 5,
+    "original_line": 5,
+    "side": "RIGHT",
+    "author_association": "MEMBER",
+    "original_position": 5,
+    "position": 5,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/4005840304",
+    "pull_request_review_id": 5198474179,
+    "id": 4005840304,
+    "node_id": "PRRC_kwDOMpqRhs7uxEWw",
+    "diff_hunk": "@@ -0,0 +1,83 @@\n+// Command fake-sp runs the local stand-in for the external service provider's\n+// assertion consumer service, so the whole external handoff round trip can be driven\n+// in a browser without the real service provider.\n+//\n+// It must never be deployed. It redirects wherever RelayState points and trusts",
+    "path": "backend/cmd/fake-sp/main.go",
+    "commit_id": "96d31d87030cfd72313327cb93d2ad36a64a2c23",
+    "original_commit_id": "8d7bb5732a9b3a085a9340d861d1f592a2347a8d",
+    "user": {
+      "login": "Brendonk13",
+      "id": 36203940,
+      "node_id": "MDQ6VXNlcjM2MjAzOTQw",
+      "avatar_url": "https://avatars.githubusercontent.com/u/36203940?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/Brendonk13",
+      "html_url": "https://github.com/Brendonk13",
+      "followers_url": "https://api.github.com/users/Brendonk13/followers",
+      "following_url": "https://api.github.com/users/Brendonk13/following{/other_user}",
+      "gists_url": "https://api.github.com/users/Brendonk13/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/Brendonk13/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/Brendonk13/subscriptions",
+      "organizations_url": "https://api.github.com/users/Brendonk13/orgs",
+      "repos_url": "https://api.github.com/users/Brendonk13/repos",
+      "events_url": "https://api.github.com/users/Brendonk13/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/Brendonk13/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "fair but this fake-sp will be deleted soon, need to fix in follow up pr",
+    "created_at": "2026-09-14T13:48:21Z",
+    "updated_at": "2026-09-14T13:48:21Z",
+    "html_url": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r4005840304",
+    "pull_request_url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/4005840304"
+      },
+      "html": {
+        "href": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r4005840304"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/4005840304/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": 5,
+    "original_line": 5,
+    "side": "RIGHT",
+    "in_reply_to_id": 3983326316,
+    "author_association": "MEMBER",
+    "original_position": 5,
+    "position": 5,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983457063",
+    "pull_request_review_id": 5172233912,
+    "id": 3983457063,
+    "node_id": "PRRC_kwDOMpqRhs7tbrsn",
+    "diff_hunk": "@@ -227,7 +227,7 @@ type TransitionActionsInput struct {\n \n type ActionBlueprintGraphNodeInput struct {\n \tId       string                            `json:\"id\" example:\"node_1\" doc:\"Unique identifier for the node in the graph\"`\n-\tType     string                            `json:\"type\" example:\"form\" enum:\"form,branch,trigger,configuration,forEach,action,statusGate,calculator,dynamicTask\" doc:\"The type of node (form, branch, configuration, trigger, forEach, action, statusGate, calculator or dynamicTask)\"`\n+\tType     string                            `json:\"type\" example:\"form\" enum:\"form,branch,trigger,configuration,forEach,action,statusGate,calculator,dynamicTask\" doc:\"The type of node (form, branch, configuration, trigger, forEach, action, statusGate, calculator, dynamicTask)\"`",
+    "path": "backend/internal/server/handlers_action_graph.go",
+    "commit_id": "8d7bb5732a9b3a085a9340d861d1f592a2347a8d",
+    "original_commit_id": "8d7bb5732a9b3a085a9340d861d1f592a2347a8d",
+    "user": {
+      "login": "garciavalter",
+      "id": 54906707,
+      "node_id": "MDQ6VXNlcjU0OTA2NzA3",
+      "avatar_url": "https://avatars.githubusercontent.com/u/54906707?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/garciavalter",
+      "html_url": "https://github.com/garciavalter",
+      "followers_url": "https://api.github.com/users/garciavalter/followers",
+      "following_url": "https://api.github.com/users/garciavalter/following{/other_user}",
+      "gists_url": "https://api.github.com/users/garciavalter/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/garciavalter/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/garciavalter/subscriptions",
+      "organizations_url": "https://api.github.com/users/garciavalter/orgs",
+      "repos_url": "https://api.github.com/users/garciavalter/repos",
+      "events_url": "https://api.github.com/users/garciavalter/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/garciavalter/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "nit: dropping the ' or ' here and at 244 is unrelated to the handoff, and it is what produces the schemas.gen.ts churn in this PR.",
+    "created_at": "2026-09-10T21:01:10Z",
+    "updated_at": "2026-09-10T21:01:10Z",
+    "html_url": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r3983457063",
+    "pull_request_url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983457063"
+      },
+      "html": {
+        "href": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r3983457063"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983457063/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": null,
+    "original_line": 230,
+    "side": "RIGHT",
+    "author_association": "MEMBER",
+    "original_position": 5,
+    "position": 1,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983528582",
+    "pull_request_review_id": 5172311983,
+    "id": 3983528582,
+    "node_id": "PRRC_kwDOMpqRhs7tb9KG",
+    "diff_hunk": "@@ -20,6 +20,12 @@ describe('nodeMapping', () => {\n       expect(toDiagramType('statusGate')).toBe(NodeType.StatusGate);\n     });\n \n+    it('throws on externalHandoff \u2014 the deleted component type', () => {",
+    "path": "typescript/journey-builder/src/containers/diagram/__tests__/nodeMapping.test.ts",
+    "commit_id": "8d7bb5732a9b3a085a9340d861d1f592a2347a8d",
+    "original_commit_id": "8d7bb5732a9b3a085a9340d861d1f592a2347a8d",
+    "user": {
+      "login": "garciavalter",
+      "id": 54906707,
+      "node_id": "MDQ6VXNlcjU0OTA2NzA3",
+      "avatar_url": "https://avatars.githubusercontent.com/u/54906707?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/garciavalter",
+      "html_url": "https://github.com/garciavalter",
+      "followers_url": "https://api.github.com/users/garciavalter/followers",
+      "following_url": "https://api.github.com/users/garciavalter/following{/other_user}",
+      "gists_url": "https://api.github.com/users/garciavalter/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/garciavalter/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/garciavalter/subscriptions",
+      "organizations_url": "https://api.github.com/users/garciavalter/orgs",
+      "repos_url": "https://api.github.com/users/garciavalter/repos",
+      "events_url": "https://api.github.com/users/garciavalter/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/garciavalter/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "this passes for any string that is not a node type, same as the `unknown` case right below it, and paletteVisibility.test.ts:36 has the same shape.",
+    "created_at": "2026-09-10T21:10:55Z",
+    "updated_at": "2026-09-10T21:10:55Z",
+    "html_url": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r3983528582",
+    "pull_request_url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983528582"
+      },
+      "html": {
+        "href": "https://github.com/mosaic-avantos/avantos/pull/9964#discussion_r3983528582"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/9964"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/mosaic-avantos/avantos/pulls/comments/3983528582/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": null,
+    "original_line": 23,
+    "side": "RIGHT",
+    "author_association": "MEMBER",
+    "original_position": 4,
+    "position": 1,
+    "subject_type": "line"
+  }
+]

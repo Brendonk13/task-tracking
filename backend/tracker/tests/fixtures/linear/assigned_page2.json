@@ -1,0 +1,21 @@
+{
+  "data": {
+    "issues": {
+      "nodes": [
+        {
+          "id": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9",
+          "identifier": "CON-9",
+          "title": "Flaky auto-save validation test",
+          "description": "The test clicks a node that remounts under it.",
+          "priority": 4,
+          "url": "https://linear.app/avantos/issue/CON-9/flaky-auto-save-validation-test",
+          "branchName": "brendonkeirle/con-9-flaky-auto-save-validation-test",
+          "state": { "name": "Backlog", "type": "backlog" },
+          "project": { "name": "Forms" },
+          "labels": { "nodes": [{ "name": "infra" }] }
+        }
+      ],
+      "pageInfo": { "hasNextPage": false, "endCursor": "eyJpZCI6IkNPTi05In0=" }
+    }
+  }
+}

@@ -56,3 +56,42 @@ def test_second_post_while_running_returns_the_same_run_with_200_and_launches_no
 
     assert len(fake_processes.popen_calls) == 1, fake_processes.popen_calls
     assert len(client.get("/crons/runs").json()) == 1
+
+
+def test_run_whose_worker_process_is_gone_is_marked_failed_and_a_new_run_can_start(
+    client, cron_settings, fake_processes
+):
+    """A worker can die without ever closing its run (§4 C5.3).
+
+    The machine reboots, the process is killed, the laptop lid closes mid-run: nothing
+    gets the chance to write ``finished`` or ``failed``, so the row stays ``running``
+    for ever and single flight (C5.2) then refuses every later trigger — crons are dead
+    until someone edits the database. So the next POST asks the one question that can be
+    answered from outside the worker, at the ``pid_alive`` boundary (S3): is the process
+    that was going to do this run still there? When it is not, that run is closed as
+    ``failed``, an operator-visible ``cron_error`` says which run was abandoned, and the
+    caller gets the fresh run it asked for — 202, a new id, its own worker.
+    """
+    abandoned = client.post("/crons/run")
+    assert abandoned.status_code == 202, abandoned.content
+    assert abandoned.json()["pid"] == fake_processes.popen_calls[0].pid
+
+    fake_processes.alive = lambda pid: False
+
+    started = client.post("/crons/run")
+
+    assert started.status_code == 202, started.content
+    assert started.json()["status"] == "running"
+    assert started.json()["id"] != abandoned.json()["id"]
+
+    runs = {run["id"]: run for run in client.get("/crons/runs").json()}
+    assert runs[abandoned.json()["id"]]["status"] == "failed", runs
+    assert runs[started.json()["id"]]["status"] == "running", runs
+
+    alerts = [
+        alert
+        for alert in client.get("/alerts").json()
+        if alert["kind"] == "cron_error"
+        and alert["cron_run_id"] == abandoned.json()["id"]
+    ]
+    assert len(alerts) == 1, client.get("/alerts").json()

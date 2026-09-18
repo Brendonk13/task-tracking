@@ -115,6 +115,14 @@ STEP_SETTINGS = {
     TRIAGE_PRS: ("GITHUB_USER", "REPO_DIRS", "CLAUDE_BIN", "CRON_WORK_DIR"),
 }
 
+REPO_DIRS_SETTING = "REPO_DIRS"
+
+# The steps that run a session inside a checkout. An entry naming a directory that is
+# not there stops these and only these; the rest of the pass never touches a repo.
+REPO_DIR_STEPS = [
+    step for step, names in STEP_SETTINGS.items() if REPO_DIRS_SETTING in names
+]
+
 # Linear grades urgency 1 (most urgent) to 4, with 0 meaning "nobody said".
 PRIORITY_BY_LINEAR = {
     0: models.Priority.NONE,
@@ -157,6 +165,35 @@ def skip_step(run: models.CronRun, step: str, missing: list[str]) -> models.Aler
         kind=models.AlertKind.CRON_ERROR,
         cron_run=run,
         message=f"Skipped {step}: set {', '.join(missing)}.",
+    )
+
+
+def unusable_repo_dirs() -> list[str]:
+    """The configured checkouts that are not a directory on this machine.
+
+    ``REPO_DIRS`` is read once at startup from the environment, so a path in it is a
+    claim about this machine that nothing has checked. A checkout that was moved,
+    renamed or never cloned is unusable config rather than a runtime surprise: the
+    steps that need one cannot start a session in a directory that is not there.
+    """
+    return [path for path in settings.REPO_DIRS.values() if not Path(path).is_dir()]
+
+
+def skip_unusable_repo_dirs(run: models.CronRun, unusable: list[str]) -> models.Alert:
+    """Record, once for the pass, that every checkout-bound step is standing down.
+
+    Like any other bad config this must not raise and must never fall back to a guessed
+    checkout, so the alert names the variable a human has to fix and the paths it points
+    at nowhere. Both steps share the one setting and would otherwise write the same
+    sentence twice, so the alert is written for the run rather than per step.
+    """
+    return models.Alert.objects.create(
+        kind=models.AlertKind.CRON_ERROR,
+        cron_run=run,
+        message=(
+            f"Skipped {', '.join(REPO_DIR_STEPS)}: {REPO_DIRS_SETTING} names "
+            f"{', '.join(unusable)}, which is not a directory."
+        ),
     )
 
 
@@ -333,7 +370,9 @@ def execute(run: models.CronRun) -> models.CronRun:
     """Do the run's work, then close it out.
 
     Each step is checked against its config first; an unconfigured step is skipped and
-    the pass carries on, so one missing variable never costs the whole run. A step that
+    the pass carries on, so one missing variable never costs the whole run. A checkout
+    that is named but not there is the same kind of fault, and is settled once for the
+    pass because the steps that need one all read the same setting. A step that
     raises is isolated the same way: the failure becomes an alert and the next step still
     gets its turn. The run itself is recorded either way, which is what makes a "nothing
     to do" cron distinguishable from one that never started.
@@ -345,10 +384,15 @@ def execute(run: models.CronRun) -> models.CronRun:
     where its reason belongs.
     """
     dealt_with = []
+    unusable = unusable_repo_dirs()
+    if unusable:
+        skip_unusable_repo_dirs(run, unusable)
     for step, do_step in STEPS.items():
         missing = missing_settings(step)
         if missing:
             skip_step(run, step, missing)
+            continue
+        if unusable and step in REPO_DIR_STEPS:
             continue
         try:
             done = do_step(run)

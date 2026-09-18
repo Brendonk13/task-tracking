@@ -126,3 +126,72 @@ def test_claude_is_invoked_headless_with_the_ticket_brief_prompt_model_effort_an
 
     assert cron_settings.BRIEFS_DIR in call.values_after("--add-dir")
     assert call.arg_after("--max-budget-usd") == str(cron_settings.CLAUDE_MAX_BUDGET_USD)
+
+
+def test_ticket_brief_session_can_read_linear_but_every_linear_write_tool_is_disallowed(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """The brief run reads Linear and can never write anywhere (§4 C2.3, §6).
+
+    A brief is research: the session must reach Linear's ``get_*``/``list_*`` tools or
+    it has nothing to describe, and it must not be able to comment on the issue, push,
+    or answer a PR on the way past. ``--permission-prompts none`` denies silently, so
+    the allow and deny lists are the only guard there is, and the appended system
+    prompt states the same rule in words for the model itself. The tools are asserted
+    as whole argv values, the way the real binary would receive them — a substring
+    match would pass on a list that only mentioned them inside another string.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on(
+        "claude",
+        stdout=fakes.claude_result(
+            {
+                "md_path": f"{cron_settings.BRIEFS_DIR}/2026-09-17-CON-7.md",
+                "html_path": f"{cron_settings.BRIEFS_DIR}/2026-09-17-CON-7.html",
+                "next_step": "diagnose",
+                "summary": "CON-7 is a bug in the external handoff dispatcher.",
+            }
+        ),
+    )
+
+    run_cron(client)
+
+    con7 = next(
+        ticket
+        for ticket in client.get("/tickets").json()
+        if ticket["linear_identifier"] == "CON-7"
+    )
+    con7_session_ids = {
+        session["session_id"]
+        for session in client.get("/sessions").json()
+        if session["ticket_id"] == con7["id"]
+    }
+    assert len(con7_session_ids) == 1, con7_session_ids
+    session_id = con7_session_ids.pop()
+
+    invocations = [
+        call
+        for call in fake_processes.calls_to("claude")
+        if call.arg_after("--session-id") == session_id
+    ]
+    assert len(invocations) == 1, fake_processes.argvs_to("claude")
+    call = invocations[0]
+
+    allowed = call.values_after("--allowedTools")
+    assert "mcp__claude_ai_Linear__get_*" in allowed, call.argv
+    assert "mcp__claude_ai_Linear__list_*" in allowed, call.argv
+
+    disallowed = call.values_after("--disallowedTools")
+    for write_tool in (
+        "mcp__claude_ai_Linear__create_*",
+        "mcp__claude_ai_Linear__update_*",
+        "mcp__claude_ai_Linear__delete_*",
+        "mcp__claude_ai_Linear__save_*",
+        "Bash(gh pr comment:*)",
+        "Bash(git push:*)",
+    ):
+        assert write_tool in disallowed, call.argv
+
+    system_prompt = call.arg_after("--append-system-prompt")
+    assert system_prompt is not None, call.argv
+    assert "READ-ONLY" in system_prompt.upper(), system_prompt

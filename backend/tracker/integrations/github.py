@@ -155,18 +155,24 @@ class GhClient:
         A listing only ever answers with the PRs that still match it, so a PR that has
         left ``--state open`` can only be asked about by name: this is how a row learns
         it was merged or closed instead of sitting at ``open`` forever.
+
+        ``_query`` reads a silent ``gh`` as an empty listing, which is the right answer
+        for a listing and no answer at all for one named PR, so the shape is checked
+        here: a caller of this boundary is promised ``GitHubError`` when ``gh`` could
+        not say anything usable, not a ``TypeError`` from unpacking a list as a PR.
         """
-        return PullRequestSummary.from_json(
-            self._query(
-                "pr",
-                "view",
-                str(number),
-                "--repo",
-                repo,
-                "--json",
-                ",".join(PR_FIELDS),
-            )
+        answer = self._query(
+            "pr",
+            "view",
+            str(number),
+            "--repo",
+            repo,
+            "--json",
+            ",".join(PR_FIELDS),
         )
+        if not isinstance(answer, dict):
+            raise GitHubError(f"gh did not describe pull request {number} in {repo}")
+        return PullRequestSummary.from_json(answer)
 
     def comments(self, repo: str, number: int) -> list[PRCommentPayload]:
         """Everything said on one pull request, from all three of GitHub's feeds.

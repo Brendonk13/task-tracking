@@ -10,7 +10,7 @@ argv while no ``claude`` is started.
 import json
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from tracker.integrations import processes
@@ -71,14 +71,13 @@ class ClaudeResult:
 
     ``claude -p --output-format json`` answers with a single JSON envelope. A run that
     dies, times out or is killed writes something else entirely, so parsing is lenient:
-    an envelope we cannot read leaves ``raw`` empty rather than raising inside an
+    an envelope we cannot read leaves these fields empty rather than raising inside an
     unattended cron.
     """
 
     exit_code: int
     result_text: str = ""
     structured: Any = None
-    raw: dict = field(default_factory=dict)
     stderr: str = ""
     timed_out: bool = False
 
@@ -184,6 +183,5 @@ class ClaudeRunner:
             exit_code=completed.returncode,
             result_text=envelope.get("result") or "",
             structured=envelope.get("structured_output"),
-            raw=envelope,
             stderr=completed.stderr or "",
         )

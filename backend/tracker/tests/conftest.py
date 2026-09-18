@@ -120,7 +120,7 @@ def cron_settings(settings, tmp_path):
 
 def run_cron(client: TestClient, *, trigger: str = "command") -> dict:
     """Run one whole cron run in-process (S2) and return its ``CronRun`` JSON."""
-    call_command("run_cron", "--new", "--trigger", trigger)
+    call_command("run_cron", "--trigger", trigger)
     runs = client.get("/crons/runs").json()
     assert runs, "no cron run was recorded"
     return runs[0]

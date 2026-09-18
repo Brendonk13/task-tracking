@@ -17,9 +17,6 @@ class Command(BaseCommand):
             help="Execute the run already recorded under this id.",
         )
         parser.add_argument(
-            "--new", action="store_true", help="Start a new run instead of resuming."
-        )
-        parser.add_argument(
             "--trigger",
             choices=[choice.value for choice in models.CronRunTrigger],
             default=models.CronRunTrigger.COMMAND,

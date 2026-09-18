@@ -19,8 +19,8 @@ const EM_DASH = "\u2014"
 
 /**
  * The status of a managed session as a chip; a manual session has no status and reads as an
- * em dash. The value is also carried by a `session-status` slot, next to the chip's own text,
- * so the cell exposes the raw value the way the `session-purpose`/`session-model` cells do.
+ * em dash. Only the em-dash branch carries a `session-status` slot: a managed session puts
+ * its status in the badge's own text, which is where a reader — and a test — finds the value.
  */
 function SessionStatusChip({ status }: { status: SessionStatus }) {
   if (status === null) {

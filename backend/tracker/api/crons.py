@@ -25,7 +25,9 @@ def start_run(request):
     doing anything wrong, so it joins that run with 200 and no second worker is started;
     202 is kept for "I started one". Two callers racing both pass the check above, so
     the last word is the ``one_running_cron_run`` constraint: the loser's INSERT fails
-    and it joins the winner's run like any other late caller.
+    and it joins the winner's run like any other late caller — or, if the winner has
+    already finished by then, starts the pass itself, since either way the caller is
+    answered with a run that exists.
     """
     # Before asking whether a pass is in flight, discard the ones that only look like
     # it: a run whose worker died without closing its row would otherwise block every
@@ -38,7 +40,14 @@ def start_run(request):
         with transaction.atomic():
             run = crons.start_run(models.CronRunTrigger.API)
     except IntegrityError:
-        return Status(200, crons.running_run())
+        # The winner of that race may already have finished by the time we look, and a
+        # caller cannot follow a run that is not there, so the run is asked for again
+        # rather than assumed: join the one still in flight, or, when the race left
+        # nothing running, start the pass this caller asked for after all.
+        joined = crons.running_run()
+        if joined is not None:
+            return Status(200, joined)
+        run = crons.start_run(models.CronRunTrigger.API)
     crons.spawn_worker(run)
     return Status(202, run)
 

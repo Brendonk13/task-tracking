@@ -169,7 +169,7 @@ def missing_repo_checkout(cron_settings, linear_transport) -> None:
         pytest.param(missing_repo_checkout, "REPO_DIRS", id="repo_dir_missing"),
     ],
 )
-def test_unexpected_exception_in_a_step_fails_the_run_with_the_error_recorded(
+def test_unexpected_problem_in_a_step_is_isolated_to_that_step_and_alerted(
     client, cron_settings, fake_processes, linear_transport, break_a_step, expected_in_message
 ):
     """One bad step must not cost the whole pass (§2, §4 C5.5).

@@ -192,3 +192,37 @@ def test_hand_made_ticket_with_matching_identifier_is_adopted_not_duplicated(
     assert len(con7) == 1, con7
     assert con7[0]["id"] == hand_made_id
     assert con7[0]["linear_identifier"] == "CON-7"
+
+
+def test_each_new_ticket_raises_a_new_ticket_alert_linking_to_it(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """Every imported ticket announces itself on the alerts page (§4 C1.8).
+
+    An import is only useful if a human hears about it, so each ticket the run
+    creates raises exactly one ``new_ticket`` alert. The alert carries the ticket
+    itself — the nested ``TicketRef`` the frontend needs to render the link — and
+    names the issue in its message with the identifier and title a person would
+    recognise. The expected identifiers and titles are read out of the fixtures,
+    which is what Linear said, rather than out of the tickets the import wrote.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    issues = [
+        node
+        for name in ("linear/assigned_page1.json", "linear/assigned_page2.json")
+        for node in fixture_json(name)["data"]["issues"]["nodes"]
+    ]
+
+    run_cron(client)
+
+    tickets = {t["linear_identifier"]: t for t in client.get("/tickets").json()}
+    alerts = [a for a in client.get("/alerts").json() if a["kind"] == "new_ticket"]
+    assert len(alerts) == len(issues), alerts
+
+    by_ticket_id = {a["ticket"]["id"]: a for a in alerts}
+    for issue in issues:
+        ticket = tickets[issue["identifier"]]
+        alert = by_ticket_id[ticket["id"]]
+        assert alert["ticket"] == {"id": ticket["id"], "title": ticket["title"]}
+        assert issue["identifier"] in alert["message"], alert["message"]
+        assert issue["title"] in alert["message"], alert["message"]

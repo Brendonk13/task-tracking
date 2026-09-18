@@ -72,6 +72,21 @@ def skip_step(run: models.CronRun, step: str, missing: list[str]) -> models.Aler
     )
 
 
+def fail_step(run: models.CronRun, step: str, error: Exception) -> models.Alert:
+    """Record that a step raised, so the rest of the pass can carry on.
+
+    The cron runs unattended, so an outage at one source — Linear rejecting the key,
+    say — must not cost the whole pass. The alert quotes the error rather than
+    wording it ourselves, because the sender is the only one who knows what went
+    wrong, and a human reading the alerts page needs that sentence to act on it.
+    """
+    return models.Alert.objects.create(
+        kind=models.AlertKind.CRON_ERROR,
+        cron_run=run,
+        message=f"Failed {step}: {error}",
+    )
+
+
 def announce_new_ticket(ticket: models.Ticket) -> models.Alert:
     """Tell a human a ticket was born while nobody was watching.
 
@@ -147,16 +162,20 @@ def execute(run: models.CronRun) -> models.CronRun:
     """Do the run's work, then close it out.
 
     Each step is checked against its config first; an unconfigured step is skipped and
-    the pass carries on, so one missing variable never costs the whole run. The run itself
-    is recorded either way, which is what makes a "nothing to do" cron distinguishable
-    from one that never started.
+    the pass carries on, so one missing variable never costs the whole run. A step that
+    raises is isolated the same way: the failure becomes an alert and the next step still
+    gets its turn. The run itself is recorded either way, which is what makes a "nothing
+    to do" cron distinguishable from one that never started.
     """
     for step, do_step in STEPS.items():
         missing = missing_settings(step)
         if missing:
             skip_step(run, step, missing)
             continue
-        do_step(run)
+        try:
+            do_step(run)
+        except Exception as error:  # any failure here belongs to this step, not the run
+            fail_step(run, step, error)
 
     run.status = models.CronRunStatus.FINISHED
     run.finished_at = timezone.now()

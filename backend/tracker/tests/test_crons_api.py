@@ -1,6 +1,10 @@
+import re
 import sys
 
 import pytest
+from django.core.management import call_command
+
+from tracker.tests import fakes
 
 pytestmark = pytest.mark.django_db
 
@@ -95,3 +99,51 @@ def test_run_whose_worker_process_is_gone_is_marked_failed_and_a_new_run_can_sta
         and alert["cron_run_id"] == abandoned.json()["id"]
     ]
     assert len(alerts) == 1, client.get("/alerts").json()
+
+
+def test_run_cron_command_with_an_existing_id_executes_that_run(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """The worker finishes the run the endpoint already recorded (§4 C5.4, §5).
+
+    ``POST /crons/run`` and the worker are two halves of one pass: the request records
+    the row and answers 202 with its id (C5.1), and the detached ``manage.py run_cron
+    <id>`` is handed that id precisely so it does *that* run. A worker that started a
+    run of its own instead would leave the recorded row ``running`` for ever — single
+    flight (C5.2) would then refuse every later trigger until the stale reaper (C5.3)
+    killed it — and the frontend, which follows the id it was given, would watch a run
+    that nobody was doing. So afterwards there is still exactly one run, the one the
+    API handed out, and it is ``finished``.
+
+    The command's other mode (``--new``) is what every other lane uses; here the id is
+    the whole point, so the run is given real work to report: the Linear pages import
+    tickets and the ``gh pr list`` capture imports pull requests, and ``claude`` is
+    answered harmlessly because briefs are C2's subject, not this one. ``summary`` is
+    the one line the header shows for the last run, so it has to say what the pass did
+    — how many tickets and how many pull requests it dealt with — and the counts are
+    read back from the API rather than written down here.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    response = client.post("/crons/run")
+    assert response.status_code == 202, response.content
+    run_id = response.json()["id"]
+
+    call_command("run_cron", str(run_id))
+
+    runs = client.get("/crons/runs").json()
+    assert [run["id"] for run in runs] == [run_id], runs
+    run = runs[0]
+    assert run["status"] == "finished", run
+    assert run["trigger"] == "api", run
+    assert run["finished_at"] is not None, run
+
+    tickets = len(client.get("/tickets").json())
+    pull_requests = len(client.get("/pull-requests").json())
+    assert tickets and pull_requests, (tickets, pull_requests)
+    assert re.search(rf"\b{tickets}\b[^.]*\btickets?\b", run["summary"], re.IGNORECASE), run
+    assert re.search(
+        rf"\b{pull_requests}\b[^.]*\b(pull requests?|PRs?)\b", run["summary"], re.IGNORECASE
+    ), run

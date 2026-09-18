@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from django.conf import settings
+from django.utils import timezone
 
 from tracker import models
 from tracker.integrations.claude_runner import ClaudeRequest, ClaudeResult, ClaudeRunner
@@ -570,6 +571,20 @@ def pending_comments(pull_request: models.PullRequest) -> list[models.PRComment]
     ]
 
 
+def mark_triaged(comments: list[models.PRComment], session: models.Session) -> None:
+    """Record that this session judged these comments, so nothing judges them again.
+
+    A cron sees the same pull request on every pass, and answering a reviewer never
+    deletes what they wrote, so the feed a later run reads is the feed this one read.
+    Being triaged therefore has to live on the comment itself: it is what takes the
+    comment out of the pending set for good, and it is per comment rather than per pull
+    request because one new comment is a new question nobody has judged.
+    """
+    models.PRComment.objects.filter(id__in=[comment.id for comment in comments]).update(
+        triaged_by=session, triaged_at=timezone.now()
+    )
+
+
 def pull_requests_needing_triage():
     """The open PRs that have a comment nobody has answered.
 
@@ -601,6 +616,9 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
         directory = settings.REPO_DIRS.get(pull_request.repo)
         if not directory:
             continue
+        # Read before the run, because what this session judged is what was pending when
+        # it started; a comment landing mid-run was never in front of it.
+        pending = pending_comments(pull_request)
         session = sessions.create_managed_session(
             purpose=models.SessionPurpose.PR_TRIAGE,
             directory=directory,
@@ -629,5 +647,6 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
         if analysis is not None:
             create_tasks(pull_request, session, analysis)
             hand_to_a_human(pull_request, session, analysis)
+            mark_triaged(pending, session)
         started.append(session)
     return started

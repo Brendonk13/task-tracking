@@ -252,3 +252,22 @@ def test_linear_graphql_error_records_a_cron_error_and_the_run_still_finishes(
     assert graphql_message in alerts[0]["message"], alerts[0]["message"]
 
     assert run["status"] == "finished"
+
+
+def test_cron_is_an_accepted_actor_and_cannot_be_registered_as_a_session(client):
+    """``cron`` is a second reserved actor literal, like ``human`` (§1, §4 C1.10).
+
+    The backend writes on its own behalf when it imports a ticket or links a PR, so
+    it needs a name to sign those writes with. That name has to be known to the
+    actor check — creating a ticket as ``cron`` is a legitimate write, not an
+    unknown actor — and, exactly like ``human``, no real session may ever claim it,
+    or a registered session could impersonate the backend.
+    """
+    created = client.post("/tickets", json={"title": "Fix login", "actor_session_id": "cron"})
+
+    assert created.status_code == 201, created.content
+
+    registered = client.put("/sessions/cron", json={"directory": "/home/me/proj"})
+
+    assert registered.status_code == 422, registered.content
+    assert client.get("/sessions").json() == []

@@ -17,6 +17,7 @@ type TaskDetail = components["schemas"]["TaskDetail"]
 type TaskHistoryEntry = components["schemas"]["TaskHistoryEntry"]
 type TaskCreate = components["schemas"]["TaskCreate"]
 type TaskStateIn = components["schemas"]["TaskStateIn"]
+type Alert = components["schemas"]["Alert"]
 
 /** The ten built-in statuses, in the canonical order `GET /api/statuses` returns them. */
 export const BUILT_IN_STATUSES: StatusItem[] = [
@@ -355,6 +356,38 @@ export function summaryHandler(needs_human_eyes_count: number) {
     const body: TicketsSummary = { needs_human_eyes_count }
     return HttpResponse.json(body)
   })
+}
+
+let nextAlertId = 1
+
+/**
+ * Builds an `Alert`; ids auto-increment per test file. Defaults to a `new_ticket` alert with
+ * nothing attached — every relation (`ticket`, `session`, `pull_request`, `cron_run_id`) is
+ * null unless the test asks for it, the way the backend leaves the ones that do not apply.
+ */
+export function makeAlert(overrides: Partial<Alert> = {}): Alert {
+  const id = overrides.id ?? nextAlertId++
+  return {
+    id,
+    kind: "new_ticket",
+    message: `Alert ${id}`,
+    ticket: null,
+    session: null,
+    pull_request: null,
+    cron_run_id: null,
+    dismissed_at: null,
+    created_at: "2026-09-12T10:00:00Z",
+    ...overrides,
+  }
+}
+
+/**
+ * MSW handler for `GET /api/alerts` returning the given rows verbatim, in the given order.
+ * The server already sorts (newest first) and already hides dismissed alerts, so the page
+ * must neither re-sort nor re-filter.
+ */
+export function alertsHandler(rows: Alert[]) {
+  return http.get("/api/alerts", () => HttpResponse.json(rows))
 }
 
 /** MSW handler for `GET /api/alerts/summary` returning the given badge count. */

@@ -136,3 +136,27 @@ def test_paginated_linear_results_are_all_imported(
     assert len(linear_transport.bodies) == 2, linear_transport.bodies
     variables = linear_transport.bodies[1].get("variables") or {}
     assert variables.get("after") == page1["pageInfo"]["endCursor"], variables
+
+
+def test_second_run_imports_nothing_new_and_raises_no_new_alerts(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """The cron is safe to run every fifteen minutes (§4 C1.6).
+
+    The second run sees exactly the same Linear issues as the first — the wire
+    repeats its last page — so it must import nothing: the same tickets, no
+    duplicates, and no second round of alerts. ``updated_at`` is part of the
+    comparison on purpose: re-importing an unchanged issue must leave the ticket
+    alone rather than rewrite it with identical values.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+
+    run_cron(client)
+    tickets_after_first_run = client.get("/tickets").json()
+    alerts_after_first_run = client.get("/alerts").json()
+    assert tickets_after_first_run, "the first run imported nothing to compare against"
+
+    run_cron(client)
+
+    assert client.get("/tickets").json() == tickets_after_first_run
+    assert client.get("/alerts").json() == alerts_after_first_run

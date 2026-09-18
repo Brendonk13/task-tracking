@@ -500,3 +500,48 @@ def test_at_most_cron_max_sessions_per_run_briefs_are_spawned(
 
     briefed = briefed_identifiers(all_calls)
     assert len(set(briefed)) == len(briefed), briefed
+
+
+def test_claude_is_launched_with_nested_session_env_removed(
+    client, cron_settings, fake_processes, linear_transport, monkeypatch
+):
+    """A spawned session must not believe it is nested inside this one (§4 C2.9, §5).
+
+    The backend is very likely started from a Claude Code session itself — that is how
+    this project is built — and such a session marks its environment with ``CLAUDECODE``
+    and ``CLAUDE_CODE_ENTRYPOINT``. Every child process inherits those marks by default,
+    so a headless ``claude`` spawned by the cron would read them and take itself for a
+    nested run. The environment each call is started with must therefore have both names
+    removed. Scrubbing is not the same as starting from nothing: the session still needs
+    ``PATH``, ``HOME`` and the rest of the ambient environment to find its binary and its
+    credentials, so an ordinary variable set here must survive — otherwise handing over
+    an empty environment would pass this test while breaking every real run.
+    """
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.setenv("TASK_TRACKING_ENV_PROBE", "inherited")
+
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on(
+        "claude",
+        stdout=fakes.claude_result(
+            {
+                "md_path": f"{cron_settings.BRIEFS_DIR}/2026-09-17-CON-7.md",
+                "html_path": f"{cron_settings.BRIEFS_DIR}/2026-09-17-CON-7.html",
+                "next_step": "diagnose",
+                "summary": "CON-7 is a bug in the external handoff dispatcher.",
+            }
+        ),
+    )
+
+    run_cron(client)
+
+    invocations = fake_processes.calls_to("claude")
+    assert invocations, "no claude process was started at all"
+
+    for call in invocations:
+        env = call.env
+        assert env is not None, call.argv
+        assert "CLAUDECODE" not in env, sorted(env)
+        assert "CLAUDE_CODE_ENTRYPOINT" not in env, sorted(env)
+        assert env.get("TASK_TRACKING_ENV_PROBE") == "inherited", sorted(env)

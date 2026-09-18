@@ -6,6 +6,8 @@ background work is already done. The session runs in the repository the brief is
 written about, because the skill reads that code.
 """
 
+from pathlib import Path
+
 from django.conf import settings
 
 from tracker import models
@@ -121,22 +123,52 @@ def tickets_needing_brief():
     )
 
 
+def brief_files_on_disk(
+    ticket: models.Ticket, session: models.Session
+) -> tuple[str, str] | None:
+    """Find the brief this run left behind when it never said where it put it.
+
+    The skill names a brief ``<date>-<identifier>.html`` with the ``.md`` beside it, so
+    the directory listing is a second source for the paths — the artefact is the point
+    of the run, and losing it because the model went quiet would be the tracker's fault
+    rather than the session's. Only files written since the session row was created
+    count, so a brief left by an earlier run about the same ticket is never claimed as
+    this run's work, and the newest match wins because the run may have rewritten it.
+    """
+    briefs_dir = Path(settings.BRIEFS_DIR)
+    if not briefs_dir.is_dir():
+        return None
+    started = session.created_at.timestamp()
+    candidates = []
+    for html in briefs_dir.glob(f"*-{ticket.linear_identifier}.html"):
+        md = html.with_suffix(".md")
+        if not md.is_file() or html.stat().st_mtime < started:
+            continue
+        candidates.append((html.stat().st_mtime, md, html))
+    if not candidates:
+        return None
+    _mtime, md, html = max(candidates)
+    return str(md), str(html)
+
+
 def store_brief(
     ticket: models.Ticket, session: models.Session, structured
 ) -> models.TicketBrief | None:
     """Record where the run says it wrote the brief, so the ticket page can open it.
 
-    The paths are taken from the structured output rather than guessed from the naming
-    convention, because the skill is the only thing that knows what it actually wrote.
-    A ticket keeps one brief, so a later run about the same ticket replaces the paths
-    instead of leaving a reader to choose between two.
+    The paths are taken from the structured output first, because the skill is the only
+    thing that knows what it actually wrote; a run that stays silent is fallen back on
+    the naming convention instead. A ticket keeps one brief, so a later run about the
+    same ticket replaces the paths instead of leaving a reader to choose between two.
     """
-    if not isinstance(structured, dict):
-        return None
+    structured = structured if isinstance(structured, dict) else {}
     md_path = structured.get("md_path")
     html_path = structured.get("html_path")
     if not md_path or not html_path:
-        return None
+        found = brief_files_on_disk(ticket, session)
+        if found is None:
+            return None
+        md_path, html_path = found
     brief, _created = models.TicketBrief.objects.update_or_create(
         ticket=ticket,
         defaults={"md_path": md_path, "html_path": html_path, "session": session},

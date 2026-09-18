@@ -285,6 +285,17 @@ export function TicketDetailPage() {
                 <ExternalLink aria-hidden="true" className="size-3.5" />
               </a>
             )}
+            {ticket.brief !== null && (
+              <a
+                href={`/api/tickets/${ticket.id}/brief`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
+              >
+                Open brief
+                <ExternalLink aria-hidden="true" className="size-3.5" />
+              </a>
+            )}
             <NeedsHumanEyesToggle ticket={ticket} />
           </div>
         </div>

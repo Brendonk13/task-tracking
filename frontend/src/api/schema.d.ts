@@ -241,7 +241,9 @@ export interface paths {
          *     doing anything wrong, so it joins that run with 200 and no second worker is started;
          *     202 is kept for "I started one". Two callers racing both pass the check above, so
          *     the last word is the ``one_running_cron_run`` constraint: the loser's INSERT fails
-         *     and it joins the winner's run like any other late caller.
+         *     and it joins the winner's run like any other late caller — or, if the winner has
+         *     already finished by then, starts the pass itself, since either way the caller is
+         *     answered with a run that exists.
          */
         post: operations["tracker_api_crons_start_run"];
         delete?: never;

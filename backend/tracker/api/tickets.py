@@ -47,6 +47,7 @@ def _detail(ticket_id: int) -> models.Ticket:
             Prefetch("timeline", queryset=models.TimelineEntry.objects.order_by("created_at", "id")),
             Prefetch("children", queryset=_tickets().order_by("created_at", "id")),
             Prefetch("tasks", queryset=task_service.queryset().order_by("created_at", "id")),
+            "pull_requests",
         ),
         id=ticket_id,
     )

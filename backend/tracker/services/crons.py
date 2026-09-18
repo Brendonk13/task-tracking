@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from tracker import models
 from tracker.integrations import github, linear
-from tracker.services import briefs, tags
+from tracker.services import briefs, pull_requests, tags
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
@@ -185,6 +185,7 @@ def check_new_prs(run: models.CronRun) -> list[models.PullRequest]:
                 },
             )
             seen.append(row)
+    pull_requests.link_to_tickets(seen)
     return seen
 
 

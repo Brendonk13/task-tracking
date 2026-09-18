@@ -349,6 +349,15 @@ class TicketBrief(Schema):
     html_path: str
 
 
+class TicketPullRequest(Schema):
+    """A PR on the ticket it is work on: enough to name it and to open it on GitHub."""
+
+    id: int
+    number: int
+    url: str
+    state: str
+
+
 class TicketDetail(TicketListItem):
     description: str
     parent: TicketRef | None
@@ -356,6 +365,12 @@ class TicketDetail(TicketListItem):
     tasks: list[Task]
     timeline: list[TimelineEntry]
     brief: TicketBrief | None
+    pull_requests: list[TicketPullRequest]
+
+    @staticmethod
+    def resolve_pull_requests(obj):
+        # Ordered by PullRequest.Meta.ordering; uses the prefetch cache when present.
+        return obj.pull_requests.all()
 
     @staticmethod
     def resolve_brief(obj):
@@ -431,3 +446,5 @@ class PullRequestItem(Schema):
     head_sha: str
     state: str
     author: str
+    # The ticket this PR is work on; null until the cron or a human links them.
+    ticket_id: int | None

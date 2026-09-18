@@ -38,16 +38,46 @@ def triage_prompt(pull_request: models.PullRequest) -> str:
     )
 
 
-def pending_comments(pull_request: models.PullRequest):
+def thread_root(comment: models.PRComment, by_github_id: dict[int, models.PRComment]):
+    """The comment that started the review thread ``comment`` belongs to.
+
+    A reply carries the id of the comment it answers, so the thread is walked upwards
+    until a comment answers nothing — that one is the root. A comment from a flat feed,
+    which never answers anything, is the root of a thread of one.
+    """
+    seen = set()
+    while comment.in_reply_to_id is not None and comment.github_id not in seen:
+        seen.add(comment.github_id)
+        parent = by_github_id.get(comment.in_reply_to_id)
+        if parent is None:
+            break
+        comment = parent
+    return comment
+
+
+def pending_comments(pull_request: models.PullRequest) -> list[models.PRComment]:
     """The comments on a PR that are still waiting on its author.
 
-    Waiting means two things: nobody here has triaged it yet, so a pass over unchanged
-    work starts nothing, and it was not written by the configured user — their own
-    comments are the answers, not the questions.
+    Waiting means three things. Nobody here has triaged it yet, so a pass over unchanged
+    work starts nothing. It was not written by the configured user — their own comments
+    are the answers, not the questions. And the thread it hangs in does not end in one
+    of the user's comments: once he has replied, the reviewer's comment is settled, and
+    answering somebody never deletes what they wrote, so a rule that only counted other
+    people's comments would keep triaging the same conversation forever.
     """
-    return pull_request.comments.filter(triaged_at__isnull=True).exclude(
-        author=settings.GITHUB_USER
-    )
+    comments = list(pull_request.comments.all())
+    by_github_id = {comment.github_id: comment for comment in comments}
+    last_in_thread: dict[int, models.PRComment] = {}
+    for comment in comments:
+        last_in_thread[thread_root(comment, by_github_id).github_id] = comment
+    return [
+        comment
+        for comment in comments
+        if comment.triaged_at is None
+        and comment.author != settings.GITHUB_USER
+        and last_in_thread[thread_root(comment, by_github_id).github_id].author
+        != settings.GITHUB_USER
+    ]
 
 
 def pull_requests_needing_triage():
@@ -59,7 +89,7 @@ def pull_requests_needing_triage():
     return [
         pull_request
         for pull_request in models.PullRequest.objects.filter(state=OPEN)
-        if pending_comments(pull_request).exists()
+        if pending_comments(pull_request)
     ]
 
 

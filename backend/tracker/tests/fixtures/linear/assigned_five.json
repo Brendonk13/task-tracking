@@ -1,0 +1,69 @@
+{
+  "data": {
+    "issues": {
+      "nodes": [
+        {
+          "id": "b1c2d3e4-1111-4a27-9f19-0a1b2c3d4e01",
+          "identifier": "CON-21",
+          "title": "Retry the external handoff dispatch on a 502",
+          "description": "The dispatcher gives up on the first gateway error.",
+          "priority": 1,
+          "url": "https://linear.app/avantos/issue/CON-21/retry-the-external-handoff-dispatch-on-a-502",
+          "branchName": "brendonkeirle/con-21-retry-the-external-handoff-dispatch-on-a-502",
+          "state": { "name": "In Progress", "type": "started" },
+          "project": { "name": "Action Platform" },
+          "labels": { "nodes": [{ "name": "bug" }, { "name": "backend" }] }
+        },
+        {
+          "id": "b1c2d3e4-2222-4a27-9f19-0a1b2c3d4e02",
+          "identifier": "CON-22",
+          "title": "Document the SAML assertion signing keys",
+          "description": "",
+          "priority": 0,
+          "url": "https://linear.app/avantos/issue/CON-22/document-the-saml-assertion-signing-keys",
+          "branchName": "brendonkeirle/con-22-document-the-saml-assertion-signing-keys",
+          "state": { "name": "Todo", "type": "unstarted" },
+          "project": null,
+          "labels": { "nodes": [] }
+        },
+        {
+          "id": "b1c2d3e4-3333-4a27-9f19-0a1b2c3d4e03",
+          "identifier": "CON-23",
+          "title": "Flaky auto-save validation test",
+          "description": "The test clicks a node that remounts under it.",
+          "priority": 4,
+          "url": "https://linear.app/avantos/issue/CON-23/flaky-auto-save-validation-test",
+          "branchName": "brendonkeirle/con-23-flaky-auto-save-validation-test",
+          "state": { "name": "Backlog", "type": "backlog" },
+          "project": { "name": "Forms" },
+          "labels": { "nodes": [{ "name": "infra" }] }
+        },
+        {
+          "id": "b1c2d3e4-4444-4a27-9f19-0a1b2c3d4e04",
+          "identifier": "CON-24",
+          "title": "Blueprint graph editor loses focus after an undo",
+          "description": "Undo remounts the canvas, so the keyboard focus goes to the body.",
+          "priority": 2,
+          "url": "https://linear.app/avantos/issue/CON-24/blueprint-graph-editor-loses-focus-after-an-undo",
+          "branchName": "brendonkeirle/con-24-blueprint-graph-editor-loses-focus-after-an-undo",
+          "state": { "name": "Todo", "type": "unstarted" },
+          "project": { "name": "Forms" },
+          "labels": { "nodes": [{ "name": "frontend" }] }
+        },
+        {
+          "id": "b1c2d3e4-5555-4a27-9f19-0a1b2c3d4e05",
+          "identifier": "CON-25",
+          "title": "Pizza tracker shows a stale action run state",
+          "description": "The poll interval is longer than the run, so the last state never arrives.",
+          "priority": 3,
+          "url": "https://linear.app/avantos/issue/CON-25/pizza-tracker-shows-a-stale-action-run-state",
+          "branchName": "brendonkeirle/con-25-pizza-tracker-shows-a-stale-action-run-state",
+          "state": { "name": "In Review", "type": "started" },
+          "project": { "name": "Action Platform" },
+          "labels": { "nodes": [{ "name": "bug" }] }
+        }
+      ],
+      "pageInfo": { "hasNextPage": false, "endCursor": "eyJpZCI6IkNPTi0yNSJ9" }
+    }
+  }
+}

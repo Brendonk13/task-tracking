@@ -431,3 +431,72 @@ def test_ticket_with_a_brief_or_a_running_brief_session_is_not_briefed_again(
     assert len(fake_processes.calls_to("claude")) == after_first_run, (
         fake_processes.argvs_to("claude")
     )
+
+
+def test_at_most_cron_max_sessions_per_run_briefs_are_spawned(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """One run may only spend ``CRON_MAX_SESSIONS_PER_RUN`` sessions (§4 C2.8, §2).
+
+    The cron is unattended and every brief is a paid headless session, so a morning
+    that imports a whole backlog must not turn into a dozen concurrent ``claude``
+    processes and the afternoon's budget gone in one pass. Five new tickets arrive at
+    once and the ceiling is two, so exactly two processes are started now and the
+    remaining tickets simply wait: the next run takes the next two. The work is
+    deferred, never dropped, which is why the second run must both start two more and
+    brief tickets the first run did not — the identifiers are read back through the
+    ``--session-id`` each call carried and the ticket that session is linked to, so
+    the claim is about which ticket a real process was spent on.
+    """
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 2
+    linear_transport.serve("linear/assigned_five.json")
+
+    briefs_dir = Path(cron_settings.BRIEFS_DIR)
+
+    def write_the_brief(call) -> None:
+        """Write the brief the way the skill does: one dated pair per identifier."""
+        identifier = (call.arg_after("-p") or " ").split()[1]
+        (briefs_dir / f"2026-09-17-{identifier}.md").write_text(f"# {identifier}\n")
+        (briefs_dir / f"2026-09-17-{identifier}.html").write_text(
+            f"<!doctype html><html><body><h1>{identifier}</h1></body></html>"
+        )
+
+    fake_processes.on(
+        "claude", stdout=fakes.claude_result(), side_effect=write_the_brief
+    )
+
+    def briefed_identifiers(calls) -> list[str]:
+        """Which tickets those ``claude`` calls were spent on, via their sessions."""
+        ticket_of_session = {
+            session["session_id"]: session["ticket_id"]
+            for session in client.get("/sessions").json()
+        }
+        identifier_of_ticket = {
+            ticket["id"]: ticket["linear_identifier"]
+            for ticket in client.get("/tickets").json()
+        }
+        return [
+            identifier_of_ticket[ticket_of_session[call.arg_after("--session-id")]]
+            for call in calls
+        ]
+
+    run_cron(client)
+
+    first_run_calls = fake_processes.calls_to("claude")
+    assert len(first_run_calls) == cron_settings.CRON_MAX_SESSIONS_PER_RUN, (
+        fake_processes.argvs_to("claude")
+    )
+
+    tickets = client.get("/tickets").json()
+    assert len(tickets) == 5, tickets
+
+    run_cron(client)
+
+    all_calls = fake_processes.calls_to("claude")
+    second_run_calls = all_calls[len(first_run_calls):]
+    assert len(second_run_calls) == cron_settings.CRON_MAX_SESSIONS_PER_RUN, (
+        fake_processes.argvs_to("claude")
+    )
+
+    briefed = briefed_identifiers(all_calls)
+    assert len(set(briefed)) == len(briefed), briefed

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tracker.tests import fakes
@@ -145,3 +147,85 @@ def test_pending_comments_spawn_a_triage_session_linked_to_the_ticket_in_the_rep
     assert session["effort"] == "high"
     assert session["directory"] == cron_settings.REPO_DIRS[PR_REPO]
     assert session["ticket_id"] == ticket_id
+
+
+def test_pr_with_no_pending_comments_spawns_no_session(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """An answered review thread is not work owed to anyone, so it starts nothing (§4 C4.1).
+
+    "Pending" is not "exists" (§1): a comment is pending while it is still waiting on
+    the user. Two kinds of comment are therefore not waiting — the ones the user wrote
+    himself, and the ones he has already replied to, where GitHub records the reply as
+    a separate comment pointing back at the original through ``in_reply_to_id``. Only
+    by rebuilding the thread from that pointer can the run tell an answered comment
+    from an unanswered one; a rule that counts comments, or counts comments by other
+    people, would spawn a triage session for every PR the user has ever discussed and
+    keep spawning it forever, since nothing about answering a reviewer deletes what the
+    reviewer wrote.
+
+    The feed served here is the real capture with the two comments nobody answered
+    removed, leaving the one exchange that did get an answer: ``garciavalter``'s
+    comment and ``Brendonk13``'s reply carrying its id. Each payload is passed through
+    untouched, so the run sees exactly the JSON GitHub sends, including the reply's
+    own author — which is the second reason it is not pending.
+
+    The assertion is a negative, so it is only worth anything if the PR reached the
+    triage step with comments to judge; a run that imported nothing would pass it
+    without ever applying the rule. ``comment_count`` on the PR is checked first for
+    that reason: the comments are there, they are simply all settled. Everything else
+    is arranged to be quiet — Linear serves its ordinary pages, any brief ``claude``
+    is answered harmlessly, and every other PR is served an empty feed — so a triage
+    ``claude``, recognised by the skill its prompt names, could only have come from
+    this PR.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    captured = fixture_json("gh/review_comments.json")
+    by_id = {comment["id"]: comment for comment in captured}
+    replies = {
+        comment["in_reply_to_id"]: comment
+        for comment in captured
+        if comment.get("in_reply_to_id") and comment["user"]["login"] == cron_settings.GITHUB_USER
+    }
+    assert replies, "the capture no longer has a comment the user answered"
+    answered_id, reply = next(iter(replies.items()))
+    settled = [by_id[answered_id], reply]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", json.dumps(settled))
+
+    run_cron(client)
+
+    prs = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+    detail = client.get(f"/pull-requests/{prs[number]['id']}")
+    assert detail.status_code == 200, detail.content
+    assert detail.json()["comment_count"] > 0, detail.json()
+
+    triage_calls = [
+        call
+        for call in fake_processes.calls_to("claude")
+        if TRIAGE_SKILL in (call.arg_after("-p") or "")
+    ]
+    assert triage_calls == [], fake_processes.argvs_to("claude")

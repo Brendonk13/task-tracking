@@ -9,6 +9,8 @@ working copy configured for that PR's repository, because a triage reads the dif
 the wrong checkout reads the wrong code.
 """
 
+from pathlib import Path
+
 from django.conf import settings
 
 from tracker import models
@@ -24,17 +26,127 @@ TRIAGE_EFFORT = "high"
 TRIAGE_SKILL = "/github-pr-comment-triage"
 """The skill that does the reading; the session is only the thing that starts it."""
 
+TRIAGE_SCRATCH_DIR = "/tmp"
+"""The skill's own scratch space: it renders its report through a script it writes
+there."""
 
-def triage_prompt(pull_request: models.PullRequest) -> str:
+TRIAGE_DIR_NAME = "triage"
+"""The folder under ``CRON_WORK_DIR`` that holds one analysis per triage run."""
+
+TRIAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pr": {
+            "type": "object",
+            "properties": {
+                "number": {"type": "integer"},
+                "title": {"type": "string"},
+                "url": {"type": "string"},
+                "headRefName": {"type": "string"},
+                "headRefOid": {"type": "string"},
+            },
+            "required": ["number", "title", "url", "headRefName", "headRefOid"],
+        },
+        "summary": {"type": "string"},
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "url": {"type": "string"},
+                    "path": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "author": {"type": "string"},
+                    "comment": {"type": "string"},
+                    "verdict": {
+                        "type": "string",
+                        "enum": [
+                            "valid",
+                            "partially-valid",
+                            "invalid",
+                            "needs-clarification",
+                        ],
+                    },
+                    "needs_code_change": {"type": "boolean"},
+                    "verdict_reason": {"type": "string"},
+                    "background": {"type": "string"},
+                    "plan": {"type": "array", "items": {"type": "string"}},
+                    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "confidence_reason": {"type": "string"},
+                    "suggested_comment": {"type": "string"},
+                    "evidence": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": [
+                    "id",
+                    "url",
+                    "author",
+                    "comment",
+                    "verdict",
+                    "needs_code_change",
+                    "verdict_reason",
+                    "plan",
+                    "confidence",
+                    "confidence_reason",
+                ],
+            },
+        },
+    },
+    "required": ["pr", "summary", "items"],
+}
+"""The shape of one triage, as the report renderer already describes it.
+
+Each item is a judgement about one comment, and what the cron does with it — a task per
+code change, a single task holding the drafted replies — needs the verdict, whether
+code has to change, the plan and the confidence on every one of them, so those are
+required.
+``suggested_comment`` is not: a comment answered by changing the code has no reply to
+draft, and demanding one would only invite an invented answer.
+"""
+
+
+def triage_dir() -> Path:
+    """The directory triage analyses are written into, created if it is not there yet.
+
+    It lives under ``CRON_WORK_DIR`` because the cron owns that place: the checkout is
+    what the triage is reading and is forbidden to touch, and ``/tmp`` is where the
+    skill falls back when it is given nowhere better, which no second reader can rely
+    on.
+    """
+    directory = Path(settings.CRON_WORK_DIR) / TRIAGE_DIR_NAME
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def analysis_path(session: models.Session) -> str:
+    """Where one run is asked to leave its analysis.
+
+    The file is named after the session rather than the pull request, so a later triage
+    of the same PR can never be handed the previous run's findings, and the file that is
+    read back is provably the one this run was told to write.
+    """
+    return str(triage_dir() / f"{session.session_id}.json")
+
+
+def triage_prompt(pull_request: models.PullRequest, path: str) -> str:
     """Point the skill at one pull request, the way its own interface reads.
 
     The skill takes the PR, its repository and the login whose unanswered comments are
     being looked for, because it talks to GitHub itself rather than being handed what
     this app already cached.
+
+    The analysis is then asked for twice — as a file at ``path`` and as the structured
+    output — because either one alone can go missing: a long run may end without an
+    envelope to parse, and a run that answers in prose still leaves the file behind. The
+    ban on posting is repeated here in words the model reads, even though the deny list
+    already enforces it, because the skill is capable of replying on GitHub by itself.
     """
     return (
         f"{TRIAGE_SKILL} --pr {pull_request.number} --repo {pull_request.repo} "
-        f"--user {settings.GITHUB_USER}"
+        f"--user {settings.GITHUB_USER}\n"
+        f"Regardless of item count, write the full analysis JSON "
+        f"(render_report.py input schema) to {path} and return the same object as your "
+        f"structured output. Do not post anything."
     )
 
 
@@ -121,12 +233,14 @@ def triage_pull_requests(run: models.CronRun) -> list[models.Session]:
         )
         runner.run(
             ClaudeRequest(
-                prompt=triage_prompt(pull_request),
+                prompt=triage_prompt(pull_request, analysis_path(session)),
                 cwd=directory,
                 session_id=session.session_id,
                 model=session.model,
                 effort=session.effort,
                 timeout=settings.CLAUDE_SESSION_TIMEOUT_SECONDS,
+                add_dirs=(str(triage_dir()), TRIAGE_SCRATCH_DIR),
+                json_schema=TRIAGE_SCHEMA,
                 max_budget_usd=settings.CLAUDE_MAX_BUDGET_USD,
             )
         )

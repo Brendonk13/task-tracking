@@ -98,9 +98,30 @@ class LinearClient:
         self._transport = transport
 
     def assigned_active_issues(self, email: str) -> list[LinearIssue]:
-        """The unfinished issues assigned to ``email``."""
-        data = self._query(ASSIGNED_ISSUES_QUERY, {"email": email, "after": None})
-        return [LinearIssue.from_node(node) for node in data["issues"]["nodes"]]
+        """Every unfinished issue assigned to ``email``, across all pages.
+
+        Linear answers one page at a time, so a caller that read only the first page
+        would silently drop work. The cursor comes from the server's ``pageInfo``
+        rather than from the last node, because paging is the server's opinion.
+
+        A server that keeps saying ``hasNextPage`` while handing back the cursor we
+        just sent would spin this loop forever inside an unattended cron. That page is
+        the one we already have, so it is dropped and the walk ends there.
+        """
+        issues: list[LinearIssue] = []
+        after: str | None = None
+        while True:
+            data = self._query(ASSIGNED_ISSUES_QUERY, {"email": email, "after": after})
+            page = data["issues"]
+            page_info = page.get("pageInfo") or {}
+            cursor = page_info.get("endCursor")
+            if after is not None and cursor == after:
+                return issues
+
+            issues.extend(LinearIssue.from_node(node) for node in page["nodes"])
+            if not page_info.get("hasNextPage") or not cursor:
+                return issues
+            after = cursor
 
     def _query(self, query: str, variables: dict) -> dict:
         # The transport is looked up per call, never cached, so a test that swaps the

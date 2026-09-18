@@ -1,10 +1,12 @@
 import re
 import sys
 
+import httpx
 import pytest
 from django.core.management import call_command
 
 from tracker.tests import fakes
+from tracker.tests.conftest import run_cron
 
 pytestmark = pytest.mark.django_db
 
@@ -147,3 +149,56 @@ def test_run_cron_command_with_an_existing_id_executes_that_run(
     assert re.search(
         rf"\b{pull_requests}\b[^.]*\b(pull requests?|PRs?)\b", run["summary"], re.IGNORECASE
     ), run
+
+
+def unreachable_linear(cron_settings, linear_transport) -> None:
+    """The Linear host cannot be reached at all: every request raises."""
+    linear_transport.fail(httpx.ConnectError("connection refused"))
+
+
+def missing_repo_checkout(cron_settings, linear_transport) -> None:
+    """Linear works, so tickets arrive, but the configured checkout is not there."""
+    linear_transport.serve("linear/assigned_page1.json")
+    cron_settings.REPO_DIRS = {"mosaic-avantos/avantos": "/nonexistent/checkout"}
+
+
+@pytest.mark.parametrize(
+    ("break_a_step", "expected_in_message"),
+    [
+        pytest.param(unreachable_linear, "connection refused", id="linear_unreachable"),
+        pytest.param(missing_repo_checkout, "REPO_DIRS", id="repo_dir_missing"),
+    ],
+)
+def test_unexpected_exception_in_a_step_fails_the_run_with_the_error_recorded(
+    client, cron_settings, fake_processes, linear_transport, break_a_step, expected_in_message
+):
+    """One bad step must not cost the whole pass (§2, §4 C5.5).
+
+    A cron pass is several independent steps, and the things that break them are not
+    the tidy failures the code was written around: the network is down, or a path in
+    the environment points at nothing. Neither is a reason to lose the steps that
+    would have worked, and neither may escape as a traceback into a detached worker
+    where nobody reads it — so in both cases the run still reaches ``finished`` and
+    the reason lands on the alerts page, which is the only place a human looks.
+
+    The two cases are the two shapes that failure takes. An unreachable Linear is a
+    surprise from outside our code, and the alert has to carry what actually went
+    wrong rather than a generic "step failed", or the operator cannot tell a dead
+    network from a bad API key. A ``REPO_DIRS`` entry naming a directory that does
+    not exist is unusable configuration (§2): the alert names the variable to fix,
+    and the cron never quietly guesses another directory to run a session in.
+    """
+    break_a_step(cron_settings, linear_transport)
+    fake_processes.on("claude", stdout=fakes.claude_result(result="no brief"))
+
+    run = run_cron(client)
+
+    assert run["status"] == "finished", run
+
+    alerts = client.get("/alerts").json()
+    matching = [
+        alert
+        for alert in alerts
+        if alert["kind"] == "cron_error" and expected_in_message in alert["message"]
+    ]
+    assert len(matching) == 1, alerts

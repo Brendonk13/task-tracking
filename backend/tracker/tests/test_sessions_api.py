@@ -235,3 +235,27 @@ def test_unknown_ticket_id_is_rejected_with_400(client):
     assert response.status_code == 400
     assert response.json() == {"detail": "unknown ticket"}
     assert client.get("/sessions").json() == []
+
+
+# --- C5.8: a session a human registered by hand is not a managed one ---
+
+
+def test_sessions_list_exposes_purpose_model_effort_and_status_and_hand_registered_sessions_are_manual(
+    client,
+):
+    response = client.put(f"/sessions/{SID}", json={"directory": "/home/me/proj"})
+
+    assert response.status_code == 200
+
+    listing = client.get("/sessions")
+
+    assert listing.status_code == 200
+    rows = [s for s in listing.json() if s["session_id"] == SID]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["purpose"] == "manual"
+    assert row["model"] is None
+    assert row["effort"] is None
+    assert row["status"] is None
+    assert row["result_summary"] is None
+    assert row["finished_at"] is None

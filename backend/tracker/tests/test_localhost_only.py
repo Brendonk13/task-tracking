@@ -41,3 +41,22 @@ def test_non_loopback_host_header_is_refused(host: str) -> None:
 
 def test_is_loopback_rejects_a_hostname() -> None:
     assert not is_loopback("localhost")
+
+
+# --- C5.7: the cron and alert endpoints are as private as the rest of the app ---
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/crons/summary"),
+        ("get", "/api/crons/runs"),
+        ("get", "/api/alerts"),
+        ("post", "/api/crons/run"),
+    ],
+)
+def test_crons_and_alerts_endpoints_refuse_non_loopback_peers(method: str, path: str) -> None:
+    response = getattr(Client(), method)(path, REMOTE_ADDR="8.8.8.8")
+
+    assert response.status_code == 403

@@ -383,3 +383,93 @@ def test_github_client_only_ever_reads(
     assert all(is_read(argv) for argv in argvs), [
         argv for argv in argvs if not is_read(argv)
     ]
+
+
+def test_pr_can_be_linked_to_a_ticket_by_hand(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """When the identifier match misses, a person says which ticket a PR is for (§4 C3.7).
+
+    The automatic link only fires when a PR carries an identifier that names a ticket
+    here (C3.2), and the three PRs in the fixture name none of the tickets Linear
+    imports, so they arrive unlinked and stay that way — a branch named after no ticket,
+    or a ticket raised after the branch, is the ordinary case rather than the odd one.
+    ``PATCH /pull-requests/{id}`` is how a person finishes the job the matcher could not.
+
+    The link is a write on the ticket as much as on the PR, so it leaves the same trace
+    the cron's own link leaves: a timeline entry by whoever asked for it, naming the PR,
+    so the ticket's history explains where the PR came from. The response is the whole
+    pull-request item (A3), not an acknowledgement, and the link shows up from both
+    sides afterwards.
+
+    The error order is the one every mutating endpoint here keeps (A3): a pull request
+    that does not exist is a 404 before a ticket that does not exist is a 400, and
+    neither writes anything. Asking for the link a PR already has is a no-op: 200 with
+    the same item, and no second entry on the timeline, because nothing changed.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    run_cron(client)
+
+    prs = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+    number = sorted(prs)[0]
+    pull_request = prs[number]
+    assert pull_request["ticket_id"] is None, pull_request
+
+    raised = client.post(
+        "/tickets",
+        json={"title": "Raised after the branch was cut", "actor_session_id": "human"},
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+    entries_before = len(raised.json()["timeline"])
+
+    linked = client.patch(
+        f"/pull-requests/{pull_request['id']}",
+        json={"ticket_id": ticket_id, "actor_session_id": "human"},
+    )
+
+    assert linked.status_code == 200, linked.content
+    assert linked.json()["id"] == pull_request["id"], linked.json()
+    assert linked.json()["number"] == number, linked.json()
+    assert linked.json()["ticket_id"] == ticket_id, linked.json()
+
+    assert client.get(f"/pull-requests/{pull_request['id']}").json()["ticket_id"] == ticket_id
+    detail = client.get(f"/tickets/{ticket_id}").json()
+    assert [pr["number"] for pr in detail["pull_requests"]] == [number], detail
+
+    def link_entries(timeline: list[dict]) -> list[dict]:
+        return [
+            entry
+            for entry in timeline
+            if entry["actor"]["session_id"] == "human" and str(number) in (entry["body"] or "")
+        ]
+
+    assert len(link_entries(detail["timeline"])) == 1, detail["timeline"]
+
+    unknown_ticket = client.patch(
+        f"/pull-requests/{pull_request['id']}",
+        json={"ticket_id": 9999, "actor_session_id": "human"},
+    )
+    assert unknown_ticket.status_code == 400, unknown_ticket.content
+    assert unknown_ticket.json() == {"detail": "unknown ticket"}
+
+    unknown_pull_request = client.patch(
+        "/pull-requests/9999",
+        json={"ticket_id": ticket_id, "actor_session_id": "human"},
+    )
+    assert unknown_pull_request.status_code == 404, unknown_pull_request.content
+
+    again = client.patch(
+        f"/pull-requests/{pull_request['id']}",
+        json={"ticket_id": ticket_id, "actor_session_id": "human"},
+    )
+
+    assert again.status_code == 200, again.content
+    assert again.json()["ticket_id"] == ticket_id, again.json()
+
+    after = client.get(f"/tickets/{ticket_id}").json()
+    assert len(link_entries(after["timeline"])) == 1, after["timeline"]
+    assert len(after["timeline"]) == entries_before + 1, after["timeline"]

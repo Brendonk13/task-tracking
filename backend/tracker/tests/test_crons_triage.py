@@ -640,3 +640,134 @@ def test_code_change_items_become_tasks_blocked_by_a_human_review_gate_task(
     assert history, first_item_task
     assert {entry["actor"]["session_id"] for entry in history} == {session_id}
     assert {entry["actor"]["name"] for entry in history} == {sessions[session_id]["name"]}
+
+
+def test_all_suggested_replies_are_collected_into_one_task_blocked_by_the_gate(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """Drafted replies never go out on their own; they queue up behind the gate (§4 C4.6, §5, §6).
+
+    The triage session is forbidden to post (C4.4), so every reply it writes has to
+    come back as text somebody still has to send. That text is the most dangerous
+    thing in the analysis: it is already addressed to a reviewer, already phrased as
+    the user, and would read as the user's own answer the moment it appeared on the
+    PR. The guarantee §6 makes is that a draft can only ever reach GitHub through a
+    person, and this is where that guarantee is kept — the drafts land in a task, and
+    that task depends on the same ``Human review`` gate every other triage task
+    depends on, so it is not startable until a human has agreed to the whole batch.
+
+    They are collected into *one* task rather than one per reply because they are one
+    action: whoever picks this up opens the PR once and answers the outstanding
+    comments in a sitting. A task per draft would put several nearly identical items
+    on the ticket, each of which could be done, forgotten or half-done separately,
+    and would let the batch be partly answered while the rest stayed open.
+
+    The count in the title is what makes the task legible on a ticket page without
+    opening it, so it must be the number of drafts actually carried, not the number
+    of items the triage judged. Two of the three items in the capture carry a
+    ``suggested_comment``: one that also needs a code change (C4.5 gives it its own
+    task; the reply is still owed) and the bot summary that needs nothing but an
+    answer. The item with no draft must not be counted, or the title promises replies
+    the description does not hold.
+
+    The description has to carry both halves of each draft. The text alone is not
+    enough to act on: a reply has to be posted under the comment it answers, and the
+    URL is the only thing that says which one — a batch of unattributed paragraphs
+    would have to be re-matched to threads by hand, which is the work this task is
+    supposed to have already done.
+
+    The setup is C4.5's: one hand-raised ticket for the PR's identifier, one PR whose
+    review comments are still waiting on an answer, every other feed empty, the
+    per-run budget raised so a brief cannot crowd the triage out, and the ``claude``
+    fake behaving as the real skill does on the success path. Every expected string,
+    and the count itself, is read out of the ``claude/triage_ok.json`` capture.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+    analysis["pr"] = {**analysis["pr"], "number": number}
+    reply_items = [item for item in analysis["items"] if item.get("suggested_comment")]
+    assert len(reply_items) == 2, analysis["items"]
+    assert len(reply_items) < len(analysis["items"]), "no draft-free item to leave out of the count"
+
+    def write_the_analysis(call: fakes.Call) -> None:
+        """Do what the skill does: write the analysis to the path the prompt named."""
+        triage_dir = Path(cron_settings.CRON_WORK_DIR) / "triage"
+        prompt = call.arg_after("-p") or ""
+        wanted = [
+            word.strip("'\"`,.;:()")
+            for word in re.split(r"\s+", prompt)
+            if word.strip("'\"`,.;:()").startswith(str(triage_dir) + "/")
+        ]
+        assert wanted, (triage_dir, prompt)
+        path = Path(wanted[0])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(analysis))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+            side_effect=write_the_analysis,
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+
+    run_cron(client)
+
+    response = client.get(f"/tickets/{ticket_id}/tasks")
+    assert response.status_code == 200, response.content
+    tasks = response.json()
+    assert tasks, "the triage created no tasks"
+
+    gate = tasks[0]
+    assert gate["title"] == f"Human review of PR comment triage for PR #{number}"
+
+    expected_title = f"Post replies to {len(reply_items)} PR comments"
+    replies_tasks = [task for task in tasks if task["title"] == expected_title]
+    assert len(replies_tasks) == 1, (expected_title, [task["title"] for task in tasks])
+
+    replies_task = replies_tasks[0]
+    description = replies_task["description"] or ""
+    for item in reply_items:
+        assert item["suggested_comment"] in description, (item["id"], description)
+        assert item["url"] in description, (item["id"], description)
+
+    assert replies_task["blocked_by"] == [gate["id"]], replies_task

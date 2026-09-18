@@ -273,7 +273,14 @@ export function TicketDetailPage() {
           </p>
         )}
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{ticket.title}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            {ticket.linear_identifier !== null && (
+              <Badge variant="outline" className="font-mono">
+                {ticket.linear_identifier}
+              </Badge>
+            )}
+            <h1 className="text-2xl font-semibold tracking-tight">{ticket.title}</h1>
+          </div>
           <div className="flex flex-wrap items-center gap-4">
             {ticket.linear_url !== null && (
               <a

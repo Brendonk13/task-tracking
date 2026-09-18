@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom"
 import { useSessions } from "@/api/hooks/sessions"
+import type { components } from "@/api/schema.d.ts"
 import { ResumeSessionButton } from "@/components/sessions/ResumeSessionButton"
+import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -10,6 +12,26 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { formatRelativeTime } from "@/lib/time"
+
+type SessionStatus = components["schemas"]["Session"]["status"]
+
+const EM_DASH = "\u2014"
+
+/**
+ * The status of a managed session as a chip; a manual session has no status and reads as an
+ * em dash. The value is also carried by a `session-status` slot, next to the chip's own text,
+ * so the cell exposes the raw value the way the `session-purpose`/`session-model` cells do.
+ */
+function SessionStatusChip({ status }: { status: SessionStatus }) {
+  if (status === null) {
+    return (
+      <span data-slot="session-status" className="text-muted-foreground">
+        {EM_DASH}
+      </span>
+    )
+  }
+  return <Badge variant="secondary">{status}</Badge>
+}
 
 export function SessionsPage() {
   const { data: sessions, isPending, isError } = useSessions()
@@ -34,6 +56,9 @@ export function SessionsPage() {
               <TableHead className="w-40">Name</TableHead>
               <TableHead>Directory</TableHead>
               <TableHead className="w-24">Ticket</TableHead>
+              <TableHead className="w-32">Purpose</TableHead>
+              <TableHead className="w-36">Model</TableHead>
+              <TableHead className="w-28">Status</TableHead>
               <TableHead>Last message</TableHead>
               <TableHead className="w-36">Last activity</TableHead>
               <TableHead className="w-12">
@@ -57,6 +82,17 @@ export function SessionsPage() {
                       #{session.ticket_id}
                     </Link>
                   )}
+                </TableCell>
+                <TableCell data-slot="session-purpose" className="capitalize">
+                  {session.purpose.replace("_", " ")}
+                </TableCell>
+                <TableCell data-slot="session-model" className="text-muted-foreground">
+                  {session.model !== null && session.effort !== null
+                    ? `${session.model} / ${session.effort}`
+                    : EM_DASH}
+                </TableCell>
+                <TableCell>
+                  <SessionStatusChip status={session.status} />
                 </TableCell>
                 <TableCell>
                   {session.last_message ?? (

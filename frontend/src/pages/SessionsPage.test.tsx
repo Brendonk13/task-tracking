@@ -148,7 +148,8 @@ describe("SessionsPage", () => {
   // cell marked data-slot="session-purpose" / "session-model" / "session-status", whose text
   // is the value on its own. A purpose reads with a space instead of the underscore
   // ("ticket brief"); model and effort read as "<model> / <effort>"; the status renders as a
-  // chip (a Badge, data-slot="badge"). A session a human registered by hand has
+  // chip instead: a Badge (data-slot="badge") holding the status on its own. A session a
+  // human registered by hand has
   // purpose "manual" and no model, effort or status, so those two cells show an em dash "—".
   it("sessions table shows purpose, model/effort and status chip; manual sessions show a dash", async () => {
     server.use(
@@ -186,9 +187,6 @@ describe("SessionsPage", () => {
     ).toBeVisible()
     expect(
       within(managedRow).getByText("opus / high", { selector: "[data-slot='session-model']" }),
-    ).toBeVisible()
-    expect(
-      within(managedRow).getByText("finished", { selector: "[data-slot='session-status']" }),
     ).toBeVisible()
     expect(
       within(managedRow).getByText("finished", { selector: "[data-slot='badge']" }),

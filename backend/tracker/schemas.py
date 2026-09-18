@@ -407,7 +407,9 @@ class Alert(Schema):
     # Nested rather than a bare id: the alerts page renders a link, and a title is the
     # only thing a person can recognise a ticket by.
     ticket: TicketRef | None
-    session_id: str | None
+    # The whole actor, not its id: an alert about a dead session is only actionable if
+    # the page can name it and offer to resume it where it was running.
+    session: Actor | None
     cron_run_id: int | None
     dismissed_at: datetime | None
     created_at: datetime

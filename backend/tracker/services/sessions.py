@@ -76,3 +76,23 @@ def finish_session(
     session.result_summary = summary
     session.save()
     return session
+
+
+def fail_session(
+    session: models.Session, *, last_message: str, summary: str = ""
+) -> models.Session:
+    """Close a managed session out when the process it describes died.
+
+    A row left reading ``running`` after its process is gone is a ghost on the sessions
+    page that nothing will ever clear, so a dead run is recorded as plainly as a
+    finished one. ``last_message`` is whatever the run managed to say — often its exit
+    message on stderr, sometimes nothing at all — kept verbatim, because that sentence
+    is the only evidence a human has of what went wrong.
+    """
+    session.status = models.SessionStatus.FAILED
+    session.finished_at = timezone.now()
+    session.last_message = last_message
+    session.last_message_at = session.finished_at
+    session.result_summary = summary
+    session.save()
+    return session

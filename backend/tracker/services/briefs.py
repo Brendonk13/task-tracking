@@ -176,10 +176,53 @@ def store_brief(
     return brief
 
 
+def failure_reason(result: ClaudeResult) -> str:
+    """Why a run died, in the run's own words where it left any.
+
+    A killed session says nothing at all, so the timeout is stated by us; anything else
+    is quoted rather than worded ourselves, because the binary is the only thing that
+    knows whether it ran out of credit or choked on a flag.
+    """
+    if result.timed_out:
+        return f"timed out after {settings.CLAUDE_SESSION_TIMEOUT_SECONDS}s"
+    said = (result.stderr or result.result_text or "").strip()
+    exited = f"exited {result.exit_code}"
+    return f"{exited}: {said}" if said else exited
+
+
+def record_failure(
+    ticket: models.Ticket, session: models.Session, result: ClaudeResult
+) -> models.Alert:
+    """Close out a dead brief run and tell a human about it.
+
+    Nothing is stored about the brief: a run that died may have written half a file, and
+    half a brief on the ticket page is worse than none. The session stops claiming to be
+    ``running``, and the alert carries that session so the alerts page can offer to
+    resume the transcript straight from the failure, plus the cron run it belonged to
+    and the ticket it was about — none of which the message alone could be filtered by.
+    """
+    reason = failure_reason(result)
+    sessions.fail_session(session, last_message=result.stderr or result.result_text)
+    return models.Alert.objects.create(
+        kind=models.AlertKind.CRON_ERROR,
+        ticket=ticket,
+        session=session,
+        cron_run=session.cron_run,
+        message=f"Brief for {ticket.linear_identifier} failed: {reason}",
+    )
+
+
 def record_brief(
     ticket: models.Ticket, session: models.Session, result: ClaudeResult
 ) -> models.TicketBrief | None:
-    """Write down what one finished run produced: its brief, and its own closing state."""
+    """Write down what one finished run produced: its brief, and its own closing state.
+
+    A run that did not end cleanly produced nothing to write down, so it is recorded as
+    a failure instead — and only as a failure, never as both.
+    """
+    if not result.ok:
+        record_failure(ticket, session, result)
+        return None
     structured = result.structured if isinstance(result.structured, dict) else {}
     brief = store_brief(ticket, session, structured)
     sessions.finish_session(

@@ -8,10 +8,22 @@ argv while no ``claude`` is started.
 """
 
 import json
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
 from tracker.integrations import processes
+
+
+def _as_text(output) -> str:
+    """Whatever a killed process left on a stream, as a string.
+
+    ``TimeoutExpired`` carries bytes or text depending on how the process was started,
+    and carries nothing at all when it was killed before writing.
+    """
+    if output is None:
+        return ""
+    return output.decode(errors="replace") if isinstance(output, bytes) else str(output)
 
 
 @dataclass(frozen=True)
@@ -53,6 +65,10 @@ class ClaudeResult:
     @property
     def ok(self) -> bool:
         return self.exit_code == 0 and not self.timed_out
+
+
+TIMEOUT_EXIT_CODE = 124
+"""What ``timeout(1)`` reports for a process it had to kill; used for the same reason."""
 
 
 class ClaudeRunner:
@@ -111,13 +127,28 @@ class ClaudeRunner:
         return command
 
     def run(self, request: ClaudeRequest) -> ClaudeResult:
-        completed = processes.run(
-            self.build_command(request),
-            cwd=request.cwd,
-            capture_output=True,
-            text=True,
-            timeout=request.timeout,
-        )
+        """Run one headless session and describe how it went, however it ended.
+
+        A session that never comes back is killed after ``request.timeout`` and reaches
+        us as a ``TimeoutExpired`` instead of a result to parse. That is an outcome of
+        the run, not a fault of the caller — an unattended cron cannot be stopped by one
+        slow session — so it is answered as a ``ClaudeResult`` like any other, marked
+        ``timed_out`` so the caller can say so in words.
+        """
+        try:
+            completed = processes.run(
+                self.build_command(request),
+                cwd=request.cwd,
+                capture_output=True,
+                text=True,
+                timeout=request.timeout,
+            )
+        except subprocess.TimeoutExpired as expired:
+            return ClaudeResult(
+                exit_code=TIMEOUT_EXIT_CODE,
+                stderr=_as_text(expired.stderr),
+                timed_out=True,
+            )
         return self._parse(completed)
 
     @staticmethod

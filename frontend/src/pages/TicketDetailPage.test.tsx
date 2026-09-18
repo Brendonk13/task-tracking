@@ -413,6 +413,31 @@ describe("TicketDetailPage", () => {
     expect(screen.queryByRole("link", { name: /linear/i })).toBeNull()
   })
 
+  // Identifier convention: a ticket imported from Linear carries `linear_identifier`
+  // ("CON-7"). The header shows it verbatim as its own element beside the title (a Badge is
+  // the obvious choice), so its text is exactly the identifier and nothing else. A ticket
+  // raised here has `linear_identifier: null` and shows no identifier at all.
+  it("header shows the linear identifier when present", async () => {
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({ id: 7, title: "Fix login", linear_identifier: "CON-7" }),
+      ),
+      ticketDetailHandler(
+        makeTicketDetail({ id: 8, title: "Write docs", linear_identifier: null }),
+      ),
+    )
+
+    const withIdentifier = renderDetail(7)
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+    expect(screen.getByText("CON-7")).toBeVisible()
+
+    withIdentifier.unmount()
+
+    renderDetail(8)
+    await screen.findByRole("heading", { level: 1, name: "Write docs" })
+    expect(screen.queryByText(/\bCON-\d+\b/)).toBeNull()
+  })
+
   // Brief convention: when the ticket has a `brief`, the header shows an anchor beside the
   // Linear link whose accessible name matches /brief/i (suggested text "Open brief"), with
   // href="/api/tickets/{id}/brief" and target="_blank" so the HTML opens in a new tab. A

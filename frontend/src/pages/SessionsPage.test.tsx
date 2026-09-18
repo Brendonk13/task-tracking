@@ -143,6 +143,70 @@ describe("SessionsPage", () => {
     expect(await navigator.clipboard.readText()).toBe("cd /home/dev/docs && claude --resume sess-2")
   })
 
+  // Managed-session convention: the table has a "Purpose" column, a "Model" column holding
+  // the model and the effort together, and a "Status" column. Each of the three renders in a
+  // cell marked data-slot="session-purpose" / "session-model" / "session-status", whose text
+  // is the value on its own. A purpose reads with a space instead of the underscore
+  // ("ticket brief"); model and effort read as "<model> / <effort>"; the status renders as a
+  // chip (a Badge, data-slot="badge"). A session a human registered by hand has
+  // purpose "manual" and no model, effort or status, so those two cells show an em dash "—".
+  it("sessions table shows purpose, model/effort and status chip; manual sessions show a dash", async () => {
+    server.use(
+      sessionsHandler([
+        makeSession({
+          session_id: "sess-1",
+          name: "cool-willow",
+          purpose: "ticket_brief",
+          model: "opus",
+          effort: "high",
+          status: "finished",
+        }),
+        makeSession({
+          session_id: "sess-2",
+          name: "quiet-otter",
+          purpose: "manual",
+          model: null,
+          effort: null,
+          status: null,
+        }),
+      ]),
+    )
+    renderWithProviders(<SessionsPage />)
+
+    await screen.findByText("quiet-otter")
+
+    const [headerRow] = screen.getAllByRole("row")
+    expect(within(headerRow!).getByRole("columnheader", { name: /purpose/i })).toBeVisible()
+    expect(within(headerRow!).getByRole("columnheader", { name: /model/i })).toBeVisible()
+    expect(within(headerRow!).getByRole("columnheader", { name: /status/i })).toBeVisible()
+
+    const managedRow = screen.getByRole("row", { name: /cool-willow/i })
+    expect(
+      within(managedRow).getByText("ticket brief", { selector: "[data-slot='session-purpose']" }),
+    ).toBeVisible()
+    expect(
+      within(managedRow).getByText("opus / high", { selector: "[data-slot='session-model']" }),
+    ).toBeVisible()
+    expect(
+      within(managedRow).getByText("finished", { selector: "[data-slot='session-status']" }),
+    ).toBeVisible()
+    expect(
+      within(managedRow).getByText("finished", { selector: "[data-slot='badge']" }),
+    ).toBeVisible()
+
+    const manualRow = screen.getByRole("row", { name: /quiet-otter/i })
+    expect(
+      within(manualRow).getByText("manual", { selector: "[data-slot='session-purpose']" }),
+    ).toBeVisible()
+    expect(
+      within(manualRow).getByText("—", { selector: "[data-slot='session-model']" }),
+    ).toBeVisible()
+    expect(
+      within(manualRow).getByText("—", { selector: "[data-slot='session-status']" }),
+    ).toBeVisible()
+    expect(within(manualRow).queryByText(/running|finished|failed/i)).toBeNull()
+  })
+
   // The ticket a session reported it is working on. It is optional, so a session with
   // ticket_id null shows nothing in the Ticket column.
   it("links to the ticket a session is working on", async () => {

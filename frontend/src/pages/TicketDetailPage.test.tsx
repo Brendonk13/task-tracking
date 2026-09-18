@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { http, HttpResponse } from "msw"
 import { Route, Routes } from "react-router-dom"
+import type { components } from "@/api/schema.d.ts"
 import { AppShell } from "@/components/layout/AppShell"
 import { TicketDetailPage } from "@/pages/TicketDetailPage"
 import {
@@ -19,6 +20,8 @@ import {
 } from "@/test/handlers"
 import { server } from "@/test/msw"
 import { renderWithProviders } from "@/test/render"
+
+type PullRequestItem = components["schemas"]["PullRequestItem"]
 
 // The page reads the ticket id from the `/tickets/:id` route param, so it is rendered
 // inside a matching <Route>; App.tsx wiring is not under test here.
@@ -441,6 +444,110 @@ describe("TicketDetailPage", () => {
     renderDetail(8)
     await screen.findByRole("heading", { level: 1, name: "Write docs" })
     expect(screen.queryByRole("link", { name: /brief/i })).toBeNull()
+  })
+
+  // Pull-request convention: when the ticket has PRs, a "Pull requests" section renders
+  // <ul aria-label="Pull requests">, one <li> per entry in API order. Each row shows an
+  // external anchor named "#<number>" (href = pr.url verbatim, target="_blank", rel with
+  // noopener), the PR state, how many comments it has ("<n> comments") and the name of the
+  // session that last triaged it, marked data-slot="pr-triage-session" (the same shape as
+  // timeline-actor); a PR nobody has triaged shows no session name. `TicketDetail.pull_requests`
+  // (schemas.TicketPullRequest) carries only {id, number, url, state}, so the count and the
+  // triage session come from GET /api/pull-requests, matched on the PR id — exactly the join
+  // AlertsPage already does. That request is only worth making when the ticket has PRs, so a
+  // ticket with `pull_requests: []` must not fire it (every other test here would otherwise
+  // need a new handler under MSW's onUnhandledRequest: "error"); it shows "No pull requests."
+  // instead. If the backend ever grows these fields on TicketPullRequest, the handler can go
+  // away and the assertions stay exactly as they are.
+  it("lists pull requests with number, state, comment count and last triage session", async () => {
+    const pullRequest = (
+      overrides: Partial<PullRequestItem> & { id: number; number: number },
+    ): PullRequestItem => ({
+      repo: "mosaic-avantos/avantos",
+      url: `https://github.com/mosaic-avantos/avantos/pull/${overrides.number}`,
+      title: `Pull request ${overrides.number}`,
+      branch: `brendonkeirle/con-${overrides.number}`,
+      head_sha: "0f1e2d3",
+      state: "open",
+      author: "Brendonk13",
+      ticket_id: 7,
+      comment_count: 0,
+      last_triage_session: null,
+      ...overrides,
+    })
+
+    server.use(
+      ticketDetailHandler(
+        makeTicketDetail({
+          id: 7,
+          title: "Fix login",
+          pull_requests: [
+            {
+              id: 101,
+              number: 42,
+              url: "https://github.com/mosaic-avantos/avantos/pull/42",
+              state: "merged",
+            },
+            {
+              id: 102,
+              number: 43,
+              url: "https://github.com/mosaic-avantos/avantos/pull/43",
+              state: "open",
+            },
+          ],
+        }),
+      ),
+      ticketDetailHandler(makeTicketDetail({ id: 8, title: "Write docs", pull_requests: [] })),
+      http.get("/api/pull-requests", () =>
+        HttpResponse.json([
+          pullRequest({
+            id: 101,
+            number: 42,
+            state: "merged",
+            comment_count: 3,
+            last_triage_session: {
+              session_id: "sess-9",
+              name: "cool-willow",
+              directory: "/home/dev/app",
+            },
+          }),
+          pullRequest({ id: 102, number: 43 }),
+        ]),
+      ),
+    )
+
+    const withPrs = renderDetail(7)
+    await screen.findByRole("heading", { level: 1, name: "Fix login" })
+
+    const list = await screen.findByRole("list", { name: /^pull requests$/i })
+    const rows = within(list).getAllByRole("listitem")
+    expect(rows).toHaveLength(2)
+
+    const link = within(rows[0]!).getByRole("link", { name: /#42/ })
+    expect(link).toHaveAttribute("href", "https://github.com/mosaic-avantos/avantos/pull/42")
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link.getAttribute("rel")).toMatch(/\bnoopener\b/)
+    expect(rows[0]).toHaveTextContent("merged")
+    expect(rows[0]).toHaveTextContent(/3 comments/i)
+    expect(
+      within(rows[0]!).getByText("cool-willow", { selector: "[data-slot='pr-triage-session']" }),
+    ).toBeVisible()
+
+    expect(within(rows[1]!).getByRole("link", { name: /#43/ })).toHaveAttribute(
+      "href",
+      "https://github.com/mosaic-avantos/avantos/pull/43",
+    )
+    expect(rows[1]).toHaveTextContent("open")
+    expect(rows[1]).toHaveTextContent(/0 comments/i)
+    expect(within(rows[1]!).queryByText("cool-willow")).toBeNull()
+    expect(screen.queryByText("No pull requests.")).toBeNull()
+
+    withPrs.unmount()
+
+    renderDetail(8)
+    await screen.findByRole("heading", { level: 1, name: "Write docs" })
+    expect(await screen.findByText("No pull requests.")).toBeInTheDocument()
+    expect(screen.queryByRole("list", { name: /^pull requests$/i })).toBeNull()
   })
 
   // ---- Reviewer pins (end of F3/F4) ----

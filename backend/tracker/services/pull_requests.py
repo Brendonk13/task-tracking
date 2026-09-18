@@ -74,18 +74,36 @@ def link_to_tickets(pull_requests) -> list[models.PullRequest]:
         if ticket is None:
             flag_unlinked(pull_request)
             continue
-        pull_request.ticket = ticket
-        pull_request.save(update_fields=["ticket"])
-        models.TimelineEntry.objects.create(
-            ticket=ticket,
-            kind=models.TimelineKind.FIELD_CHANGE,
-            actor_session_id=actors.CRON,
-            body=changes.field_change_body(
-                actors.CRON, "pull request", None, f"#{pull_request.number}"
-            ),
-        )
+        link(pull_request, ticket, actors.CRON, actors.CRON)
         linked.append(pull_request)
     return linked
+
+
+def link(pull_request: models.PullRequest, ticket: models.Ticket, actor_session_id: str,
+         actor_name: str) -> bool:
+    """Say this PR is work on this ticket, and write that on the ticket's history.
+
+    The link is a change to the ticket as much as to the PR — it is how the ticket's
+    history explains where the code came from — so it always leaves the same entry,
+    whether the matcher made the link or a person did (C3.7); only the actor differs.
+
+    Asking for the link a PR already has changes nothing, so nothing is written: the
+    cron re-reads the same open PRs every fifteen minutes, and a person clicking twice
+    must not double the history either.
+    """
+    if pull_request.ticket_id == ticket.id:
+        return False
+    pull_request.ticket = ticket
+    pull_request.save(update_fields=["ticket"])
+    models.TimelineEntry.objects.create(
+        ticket=ticket,
+        kind=models.TimelineKind.FIELD_CHANGE,
+        actor_session_id=actor_session_id,
+        body=changes.field_change_body(
+            actor_name, "pull request", None, f"#{pull_request.number}"
+        ),
+    )
+    return True
 
 
 def flag_unlinked(pull_request: models.PullRequest) -> models.Alert | None:

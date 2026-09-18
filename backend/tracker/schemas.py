@@ -461,3 +461,10 @@ class PullRequestItem(Schema):
     # How much has been said on the PR across GitHub's three comment feeds; annotated
     # by the router so a listing stays one query.
     comment_count: int = 0
+
+
+class PullRequestPatch(Schema):
+    """A person saying which ticket a PR is work on, when the matcher could not (C3.7)."""
+
+    ticket_id: int
+    actor_session_id: str

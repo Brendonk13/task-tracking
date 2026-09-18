@@ -30,6 +30,37 @@ def running_run() -> models.CronRun | None:
     return models.CronRun.objects.filter(status=models.CronRunStatus.RUNNING).first()
 
 
+def reap_stale() -> list[models.CronRun]:
+    """Close out runs whose worker process is gone, so the cron is not dead for ever.
+
+    A worker can die without ever writing ``finished`` or ``failed`` — the machine
+    reboots, the process is killed, the lid closes mid-run. The row then stays
+    ``running`` and single flight refuses every later trigger, so crons stop until
+    someone edits the database. The one question that can be answered from outside a
+    dead worker is whether its pid is still a live process, asked at the ``pid_alive``
+    boundary (S3); when it is not, the run is failed with an error saying so and an
+    operator-visible ``cron_error`` names it. A run with no pid yet has not been
+    abandoned — nothing was ever started for it to lose — so it is left alone.
+    """
+    reaped = []
+    for run in models.CronRun.objects.filter(
+        status=models.CronRunStatus.RUNNING, pid__isnull=False
+    ):
+        if processes.pid_alive(run.pid):
+            continue
+        run.status = models.CronRunStatus.FAILED
+        run.error = f"Worker process {run.pid} is gone; the run was abandoned."
+        run.finished_at = timezone.now()
+        run.save(update_fields=["status", "error", "finished_at"])
+        models.Alert.objects.create(
+            kind=models.AlertKind.CRON_ERROR,
+            cron_run=run,
+            message=f"Cron run {run.id} was abandoned: worker process {run.pid} is gone.",
+        )
+        reaped.append(run)
+    return reaped
+
+
 WORKER_DIR_NAME = "crons"
 """The folder under ``CRON_WORK_DIR`` that keeps one log per detached worker."""
 

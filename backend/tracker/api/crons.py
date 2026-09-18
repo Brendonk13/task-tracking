@@ -27,6 +27,10 @@ def start_run(request):
     the last word is the ``one_running_cron_run`` constraint: the loser's INSERT fails
     and it joins the winner's run like any other late caller.
     """
+    # Before asking whether a pass is in flight, discard the ones that only look like
+    # it: a run whose worker died without closing its row would otherwise block every
+    # later trigger for ever (§4 C5.3).
+    crons.reap_stale()
     running = crons.running_run()
     if running is not None:
         return Status(200, running)

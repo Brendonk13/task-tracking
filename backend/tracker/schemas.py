@@ -447,6 +447,12 @@ class Alert(Schema):
     created_at: datetime
 
 
+class AlertsSummary(Schema):
+    """What the nav badge shows: how many alerts are still waiting on a human."""
+
+    undismissed_count: int
+
+
 class PullRequestItem(Schema):
     """A pull request as this app last saw it on GitHub.
 

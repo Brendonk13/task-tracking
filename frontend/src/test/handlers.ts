@@ -390,6 +390,40 @@ export function alertsHandler(rows: Alert[]) {
   return http.get("/api/alerts", () => HttpResponse.json(rows))
 }
 
+/**
+ * Stateful handlers for the alerts page: `GET /api/alerts` plus
+ * `POST /api/alerts/:id/dismiss`. Dismissing records the alert id and drops that alert from
+ * what later GETs return, the way the real backend hides dismissed alerts (C5.6). So the page
+ * may either use the mutation response or invalidate and refetch — both see the alert gone.
+ *
+ * Usage: `const alerts = statefulAlerts([a, b]); server.use(...alerts.handlers)`.
+ */
+export function statefulAlerts(initial: Alert[]) {
+  let rows = initial
+  const dismissRequests: number[] = []
+
+  const handlers = [
+    http.get("/api/alerts", () => HttpResponse.json(rows)),
+    http.post("/api/alerts/:id/dismiss", ({ params }) => {
+      const id = Number(params.id)
+      dismissRequests.push(id)
+      const alert = rows.find((a) => a.id === id)
+      if (alert === undefined) return HttpResponse.json({ detail: "Not Found" }, { status: 404 })
+      const dismissed = { ...alert, dismissed_at: "2026-09-13T12:00:00Z" }
+      rows = rows.filter((a) => a.id !== id)
+      return HttpResponse.json(dismissed)
+    }),
+  ]
+
+  return {
+    handlers,
+    /** The id of every `POST /api/alerts/:id/dismiss` seen, in order. */
+    dismissRequests,
+    /** The rows the "server" would return now. */
+    current: () => rows,
+  }
+}
+
 /** MSW handler for `GET /api/alerts/summary` returning the given badge count. */
 export function alertsSummaryHandler(undismissed_count: number) {
   return http.get("/api/alerts/summary", () => {

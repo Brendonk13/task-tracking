@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from tracker import models
 from tracker.integrations import github, linear
-from tracker.services import briefs, pull_requests, tags
+from tracker.services import briefs, pull_requests, tags, triage
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
@@ -24,6 +24,7 @@ def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> m
 IMPORT_TICKETS = "import tickets from Linear"
 WRITE_BRIEFS = "write ticket briefs"
 IMPORT_PRS = "import pull requests from GitHub"
+TRIAGE_PRS = "triage pull request comments"
 
 # The state ``gh`` gives a pull request that is still in flight, lower-cased the way a
 # ``PullRequest`` row stores it.
@@ -33,6 +34,7 @@ STEP_SETTINGS = {
     IMPORT_TICKETS: ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
     WRITE_BRIEFS: ("CLAUDE_BIN", "BRIEFS_DIR", "REPO_DIRS"),
     IMPORT_PRS: ("GITHUB_USER", "GITHUB_REPOS"),
+    TRIAGE_PRS: ("GITHUB_USER", "REPO_DIRS", "CLAUDE_BIN", "CRON_WORK_DIR"),
 }
 
 # Linear grades urgency 1 (most urgent) to 4, with 0 meaning "nobody said".
@@ -226,6 +228,9 @@ STEPS = {
     WRITE_BRIEFS: briefs.write_briefs,
     # PRs come last: they are read against the tickets this pass already knows about.
     IMPORT_PRS: check_new_prs,
+    # Triage runs on what the import just read, so a comment written since the last
+    # pass is answered in the pass that first saw it.
+    TRIAGE_PRS: triage.triage_pull_requests,
 }
 
 

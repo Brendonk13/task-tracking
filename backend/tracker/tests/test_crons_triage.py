@@ -478,3 +478,165 @@ def test_triage_session_cannot_post_edit_or_change_git_state(
         "never" in sentence or "not" in sentence or "no " in sentence
         for sentence in about_posting
     ), about_posting
+
+
+def test_code_change_items_become_tasks_blocked_by_a_human_review_gate_task(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A triage's judgements land as tasks nobody may start before a human agrees (§4 C4.5, §5).
+
+    The analysis that comes back is an opinion, not a decision. It was written
+    unattended by a model that read a reviewer's comment and guessed what the code
+    should become, and each item carries its own confidence for exactly that reason.
+    Turning such an opinion straight into work a coding session can pick up would let
+    one bad reading of one comment become a commit. So the first task the run creates
+    is the gate — ``Human review of PR comment triage for PR #N``, depending on
+    nothing, which is what makes it the one piece of work a human can actually start —
+    and every task derived from the analysis depends on it. That is the whole point of
+    the ``depends_on``-a-gate-task design (§1): ``blocked_by`` already drops finished
+    dependencies (``test_blocked_by_drops_finished_dependencies``), so marking the
+    gate done is the single act that releases the batch, and until then nothing else
+    on the ticket is startable.
+
+    Only the items that say ``needs_code_change`` become their own task. The third
+    item in the analysis is a bot's review summary the triage judged invalid: there is
+    nothing to build for it, only something to say, and collecting those replies is
+    C4.6's subject. Creating a task for it here would put a piece of work on the
+    ticket that no one can ever do.
+
+    What goes in the description is what a person needs to decide, at the gate,
+    whether the item is worth doing — and later, whoever does the work needs the same
+    thing. So it carries the reviewer's comment verbatim, the verdict and the
+    confidence behind it, every line of the plan (a plan missing its last step is a
+    different plan), and the comment's URL, which is the only way back to the
+    conversation the task came from. Titles are capped at 500 characters because they
+    are built from a reviewer's prose, which has no length limit, and the column does.
+
+    The ``claude`` fake behaves as the real skill does on the success path: it both
+    returns the analysis as structured output and writes the same object to the file
+    the prompt asked for (§5), so this test says nothing about which of the two the
+    run reads — that choice is free, and C4.10 covers the failure path.
+
+    Finally the tasks must be attributable. Every write derived from a session's
+    output is made as that session (§1), so the history on one of these tasks must
+    name the triage session — the same name ``GET /sessions`` shows for it, which is
+    what the sessions page and the ticket timeline both display. A task blamed on
+    ``cron`` or on ``human`` would hide which run, and which transcript, produced it.
+
+    The setup is C4.3's: one hand-raised ticket for the PR's identifier, one PR whose
+    review comments are still waiting on an answer, every other feed empty, the
+    per-run budget raised so a brief cannot crowd the triage out. Every expected
+    string is read out of the ``claude/triage_ok.json`` capture.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+    analysis["pr"] = {**analysis["pr"], "number": number}
+    code_change_items = [item for item in analysis["items"] if item["needs_code_change"]]
+    assert len(code_change_items) == 2, analysis["items"]
+    assert len(code_change_items) < len(analysis["items"]), "no reply-only item to ignore"
+
+    def write_the_analysis(call: fakes.Call) -> None:
+        """Do what the skill does: write the analysis to the path the prompt named."""
+        triage_dir = Path(cron_settings.CRON_WORK_DIR) / "triage"
+        prompt = call.arg_after("-p") or ""
+        wanted = [
+            word.strip("'\"`,.;:()")
+            for word in re.split(r"\s+", prompt)
+            if word.strip("'\"`,.;:()").startswith(str(triage_dir) + "/")
+        ]
+        assert wanted, (triage_dir, prompt)
+        path = Path(wanted[0])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(analysis))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+            side_effect=write_the_analysis,
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+
+    run_cron(client)
+
+    triage_calls = [
+        call
+        for call in fake_processes.calls_to("claude")
+        if TRIAGE_SKILL in (call.arg_after("-p") or "")
+    ]
+    assert len(triage_calls) == 1, fake_processes.argvs_to("claude")
+    session_id = triage_calls[0].arg_after("--session-id")
+
+    response = client.get(f"/tickets/{ticket_id}/tasks")
+    assert response.status_code == 200, response.content
+    tasks = response.json()
+    assert tasks, "the triage created no tasks"
+
+    gate = tasks[0]
+    assert gate["title"] == f"Human review of PR comment triage for PR #{number}"
+    assert gate["depends_on"] == []
+
+    for item in code_change_items:
+        matching = [task for task in tasks[1:] if item["url"] in (task["description"] or "")]
+        assert len(matching) == 1, (item["url"], tasks[1:])
+        task = matching[0]
+        description = task["description"]
+        assert item["comment"] in description, description
+        assert item["verdict"] in description, description
+        assert str(item["confidence"]) in description, description
+        for line in item["plan"]:
+            assert line in description, (line, description)
+        assert task["blocked_by"] == [gate["id"]], task
+
+    for task in tasks:
+        assert len(task["title"]) <= 500, task["title"]
+
+    sessions = {session["session_id"]: session for session in client.get("/sessions").json()}
+    assert session_id in sessions, sessions
+
+    first_item_task = next(
+        task for task in tasks[1:] if code_change_items[0]["url"] in (task["description"] or "")
+    )
+    history = client.get(f"/tasks/{first_item_task['id']}").json()["history"]
+    assert history, first_item_task
+    assert {entry["actor"]["session_id"] for entry in history} == {session_id}
+    assert {entry["actor"]["name"] for entry in history} == {sessions[session_id]["name"]}

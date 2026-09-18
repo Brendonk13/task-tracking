@@ -1108,3 +1108,135 @@ def test_triaged_comments_are_not_triaged_again_but_new_ones_start_a_second_gate
     assert ticket["status"] == "blocked", ticket["status"]
     status_changes = [entry for entry in ticket["timeline"] if entry["kind"] == "status_change"]
     assert len(status_changes) == 1, ticket["timeline"]
+
+
+def test_empty_analysis_marks_comments_triaged_without_blocking_the_ticket(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A triage that finds nothing owes the ticket nothing (§4 C4.9).
+
+    The run cannot know in advance whether a reviewer's comments need an answer; that
+    judgement is the session's whole job, and "nothing here needs attention" is one of
+    its ordinary answers — the ``claude/triage_empty.json`` capture is a real run that
+    reached exactly that conclusion, with a filled-in ``pr`` and ``summary`` and an
+    empty ``items``. What must not happen is that the *asking* costs the ticket
+    anything. Blocking a ticket, flagging it for human eyes and raising a
+    ``pr_triaged`` alert are the three signals C4.7 defines, and every one of them says
+    "a person is needed here". If they fired on an empty analysis, a schedule running
+    every fifteen minutes over a quiet PR would block tickets nobody has to look at,
+    fill the alerts page with nothing, and teach the reader to ignore the badge that is
+    supposed to mean something. So the ticket keeps the status it had, keeps its flag
+    down, gains no timeline entry, and gains no tasks: there is no gate to open, since
+    there is nothing behind it.
+
+    The comments are still triaged, though, and that is the second half. Being judged
+    is a fact about the comment, not about the verdict (C4.8): a comment the triage read
+    and dismissed has had its turn. If an empty result left the comments pending, the
+    very next run would spawn another session on the same unchanged feed, and the same
+    one after that — a PR nobody is arguing about would burn the per-run session budget
+    (C4.11) forever. So the run is repeated with the same feed and must start nothing.
+
+    The setup is C4.7's: one hand-raised ticket for the PR's identifier, one PR whose
+    review comments are still waiting on an answer, every other feed empty, the per-run
+    budget raised so a brief cannot crowd the triage out, and the ``claude`` fake
+    behaving as the real skill does on the success path — returning the analysis and
+    writing the same object to the path the prompt named. Only the analysis differs.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    analysis = fixture_json("claude/triage_empty.json")["structured_output"]
+    analysis["pr"] = {**analysis["pr"], "number": number}
+    assert analysis["items"] == [], analysis
+
+    def write_the_analysis(call: fakes.Call) -> None:
+        """Do what the skill does: write the analysis to the path the prompt named."""
+        triage_dir = Path(cron_settings.CRON_WORK_DIR) / "triage"
+        prompt = call.arg_after("-p") or ""
+        wanted = [
+            word.strip("'\"`,.;:()")
+            for word in re.split(r"\s+", prompt)
+            if word.strip("'\"`,.;:()").startswith(str(triage_dir) + "/")
+        ]
+        assert wanted, (triage_dir, prompt)
+        path = Path(wanted[0])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(analysis))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+            side_effect=write_the_analysis,
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+    status_before = client.get(f"/tickets/{ticket_id}").json()["status"]
+    assert status_before != "blocked", status_before
+
+    def triage_calls() -> list[fakes.Call]:
+        return [
+            call
+            for call in fake_processes.calls_to("claude")
+            if TRIAGE_SKILL in (call.arg_after("-p") or "")
+        ]
+
+    run_cron(client)
+
+    assert len(triage_calls()) == 1, fake_processes.argvs_to("claude")
+
+    tasks = client.get(f"/tickets/{ticket_id}/tasks")
+    assert tasks.status_code == 200, tasks.content
+    assert tasks.json() == [], tasks.json()
+
+    ticket = client.get(f"/tickets/{ticket_id}").json()
+    assert ticket["status"] == status_before, ticket["status"]
+    assert ticket["needs_human_eyes"] is False, ticket
+    assert [
+        entry for entry in ticket["timeline"] if entry["kind"] in ("status_change", "flag_change")
+    ] == [], ticket["timeline"]
+
+    alerts = client.get("/alerts")
+    assert alerts.status_code == 200, alerts.content
+    assert [alert for alert in alerts.json() if alert["kind"] == "pr_triaged"] == [], alerts.json()
+
+    # The comments were judged, so the unchanged feed is no longer work owed to anyone.
+    run_cron(client)
+
+    assert len(triage_calls()) == 1, fake_processes.argvs_to("claude")

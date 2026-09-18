@@ -941,3 +941,170 @@ def test_triaged_ticket_is_blocked_flagged_and_alerted(
     assert last_triage_session, pr_detail.json()
     assert last_triage_session["session_id"] == session_id, last_triage_session
     assert last_triage_session["name"] == session_name, last_triage_session
+
+
+def test_triaged_comments_are_not_triaged_again_but_new_ones_start_a_second_gate(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """Triage is owed to a comment, once, and a new comment owes a new one (§4 C4.8, §1).
+
+    A cron runs on a schedule, so this step sees the same PR again and again while the
+    conversation on it stays exactly where it was. Nothing about triaging a comment
+    deletes it from GitHub: the feed the second run reads is byte for byte the feed the
+    first run read. If "pending" meant only "not written by the user and not answered",
+    every run would start another ``claude``, write another gate and another copy of
+    every task, and a ticket left open over a weekend would fill with duplicates of work
+    a human already has in front of them — while quietly spending the per-run session
+    budget (C4.11) on judgements that were already made. So being triaged is recorded on
+    the comment itself (``triaged_by``/``triaged_at``, §1) and takes it out of the
+    pending set for good.
+
+    That record has to be per comment rather than per pull request, which is what the
+    third run shows. A reviewer who adds one new comment has asked a new question, and
+    nobody has judged it; the PR as a whole being "already triaged" would swallow it and
+    leave real feedback unanswered. So one unanswered comment appearing is enough to
+    start a second session, with its own gate — a second gate rather than reuse of the
+    first, because the first may already have been reviewed and closed by a human, and
+    hanging new, unreviewed judgements off a gate somebody already agreed to would let
+    them through without anyone reading them.
+
+    What must *not* repeat is the block. The ticket was put in ``blocked`` by the first
+    triage and is still blocked, so the second has nothing to change; a ``status_change``
+    entry recording a move from ``blocked`` to ``blocked`` would be a timeline full of
+    events in which nothing happened, and would make the real transition hard to find.
+    The status is already what it should be, so the only honest record is no record.
+
+    The three feeds are built from the one capture: runs 1 and 2 are served the same
+    text, and run 3 is served it with one further ``garciavalter`` comment appended —
+    a copy of a real entry carrying a new ``id`` and a new ``body``, so every other key
+    is shaped exactly as GitHub sends it. The later registration wins in the fake, so
+    appending a reply is how the third run sees a longer feed.
+
+    The rest of the setup is C4.5's: one hand-raised ticket for the PR's identifier,
+    every other feed empty, the per-run budget raised so briefs cannot crowd the triage
+    out, and the ``claude`` fake behaving as the real skill does on the success path.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    captured = fixture_json("gh/review_comments.json")
+    unanswered = next(
+        comment
+        for comment in captured
+        if comment["user"]["login"] != cron_settings.GITHUB_USER
+        and not comment.get("in_reply_to_id")
+    )
+    # A real comment in every respect but the two things that make it a different one.
+    fresh = {
+        **unanswered,
+        "id": unanswered["id"] + 1,
+        "body": "one more thing: this branch is unreachable when the node type is empty.",
+    }
+    grown = [*captured, fresh]
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", json.dumps(captured))
+
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+    analysis["pr"] = {**analysis["pr"], "number": number}
+
+    def write_the_analysis(call: fakes.Call) -> None:
+        """Do what the skill does: write the analysis to the path the prompt named."""
+        triage_dir = Path(cron_settings.CRON_WORK_DIR) / "triage"
+        prompt = call.arg_after("-p") or ""
+        wanted = [
+            word.strip("'\"`,.;:()")
+            for word in re.split(r"\s+", prompt)
+            if word.strip("'\"`,.;:()").startswith(str(triage_dir) + "/")
+        ]
+        assert wanted, (triage_dir, prompt)
+        path = Path(wanted[0])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(analysis))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+            side_effect=write_the_analysis,
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+
+    def triage_calls() -> list[fakes.Call]:
+        return [
+            call
+            for call in fake_processes.calls_to("claude")
+            if TRIAGE_SKILL in (call.arg_after("-p") or "")
+        ]
+
+    def tasks() -> list[dict]:
+        response = client.get(f"/tickets/{ticket_id}/tasks")
+        assert response.status_code == 200, response.content
+        return response.json()
+
+    def gates(listed: list[dict]) -> list[dict]:
+        title = f"Human review of PR comment triage for PR #{number}"
+        return [task for task in listed if task["title"] == title]
+
+    run_cron(client)
+
+    assert len(triage_calls()) == 1, fake_processes.argvs_to("claude")
+    after_first = tasks()
+    assert len(gates(after_first)) == 1, after_first
+    assert client.get(f"/tickets/{ticket_id}").json()["status"] == "blocked"
+
+    run_cron(client)
+
+    assert len(triage_calls()) == 1, fake_processes.argvs_to("claude")
+    assert tasks() == after_first
+
+    serve_feed(f"/pulls/{number}/comments", json.dumps(grown))
+
+    run_cron(client)
+
+    second_run_calls = triage_calls()
+    assert len(second_run_calls) == 2, fake_processes.argvs_to("claude")
+    session_ids = [call.arg_after("--session-id") for call in second_run_calls]
+    assert len(set(session_ids)) == 2, session_ids
+
+    after_third = tasks()
+    assert len(gates(after_third)) == 2, [task["title"] for task in after_third]
+
+    ticket = client.get(f"/tickets/{ticket_id}").json()
+    assert ticket["status"] == "blocked", ticket["status"]
+    status_changes = [entry for entry in ticket["timeline"] if entry["kind"] == "status_change"]
+    assert len(status_changes) == 1, ticket["timeline"]

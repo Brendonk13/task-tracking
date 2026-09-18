@@ -72,6 +72,20 @@ def skip_step(run: models.CronRun, step: str, missing: list[str]) -> models.Aler
     )
 
 
+def announce_new_ticket(ticket: models.Ticket) -> models.Alert:
+    """Tell a human a ticket was born while nobody was watching.
+
+    The import is the only actor here, so the alerts page is where the news lands. The
+    message names the issue the way Linear does — identifier then title — because that
+    is what a person recognises it by, and the link carries the ticket itself.
+    """
+    return models.Alert.objects.create(
+        kind=models.AlertKind.NEW_TICKET,
+        ticket=ticket,
+        message=f"Imported {ticket.linear_identifier}: {ticket.title}",
+    )
+
+
 def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
     """Import the Linear issues assigned to us as tickets.
 
@@ -118,6 +132,7 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
             linear_identifier=issue.identifier,
         )
         tags.set_tags(ticket, issue.project, issue.labels)
+        announce_new_ticket(ticket)
         imported.append(ticket)
     return imported
 

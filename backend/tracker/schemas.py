@@ -380,7 +380,9 @@ class Alert(Schema):
     id: int
     kind: AlertKind
     message: str
-    ticket_id: int | None
+    # Nested rather than a bare id: the alerts page renders a link, and a title is the
+    # only thing a person can recognise a ticket by.
+    ticket: TicketRef | None
     session_id: str | None
     cron_run_id: int | None
     dismissed_at: datetime | None

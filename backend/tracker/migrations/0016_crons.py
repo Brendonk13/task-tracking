@@ -63,6 +63,64 @@ class Migration(migrations.Migration):
             },
         ),
     
+        migrations.AddField(
+            model_name="session",
+            name="purpose",
+            field=models.CharField(
+                choices=[
+                    ("manual", "Manual"),
+                    ("ticket_brief", "Ticket Brief"),
+                    ("pr_triage", "Pr Triage"),
+                ],
+                default="manual",
+                max_length=20,
+            ),
+        ),
+        migrations.AddField(
+            model_name="session",
+            name="model",
+            field=models.CharField(blank=True, max_length=50, null=True),
+        ),
+        migrations.AddField(
+            model_name="session",
+            name="effort",
+            field=models.CharField(blank=True, max_length=20, null=True),
+        ),
+        migrations.AddField(
+            model_name="session",
+            name="status",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("running", "Running"),
+                    ("finished", "Finished"),
+                    ("failed", "Failed"),
+                ],
+                max_length=20,
+                null=True,
+            ),
+        ),
+        migrations.AddField(
+            model_name="session",
+            name="result_summary",
+            field=models.TextField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="session",
+            name="finished_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="session",
+            name="cron_run",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="sessions",
+                to="tracker.cronrun",
+            ),
+        ),
         migrations.CreateModel(
             name="Alert",
             fields=[

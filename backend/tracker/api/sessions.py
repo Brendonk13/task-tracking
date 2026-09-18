@@ -6,20 +6,11 @@ from ninja import Router
 from ninja.errors import HttpError
 
 from tracker import models, schemas
-from tracker.services import actors, names
+from tracker.services import actors, sessions
 
 router = Router(tags=["sessions"])
 
-MAX_NAME_ATTEMPTS = 100
 MAX_CREATE_ATTEMPTS = 3
-
-
-def _unused_name() -> str:
-    for _ in range(MAX_NAME_ATTEMPTS):
-        name = names.generate_name()
-        if not models.Session.objects.filter(name=name).exists():
-            return name
-    raise RuntimeError("could not generate a unique session name")
 
 
 @router.put("/{session_id}", response=schemas.Session)
@@ -40,7 +31,7 @@ def register_session(request, session_id: str, payload: schemas.SessionIn):
                     # Omitted keys kept, explicit null clears (A10).
                     defaults=payload.dict(exclude_unset=True),
                     # ``name`` is a callable so it is only drawn when actually creating.
-                    create_defaults={**payload.dict(), "name": _unused_name},
+                    create_defaults={**payload.dict(), "name": sessions.unused_name},
                 )
             return session
         except IntegrityError:

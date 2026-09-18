@@ -9,6 +9,8 @@ from tracker.models import (
     CronRunStatus,
     CronRunTrigger,
     Priority,
+    SessionPurpose,
+    SessionStatus,
     TaskHistoryKind,
     TaskState,
     TimelineKind,
@@ -32,12 +34,20 @@ class SessionIn(Schema):
 
 
 class Session(Schema):
+    """A11/A10, plus how a managed session was launched: null for a manual one."""
+
     session_id: str
     name: str
     directory: str
     last_message: str | None
     last_message_at: datetime | None
     ticket_id: int | None
+    purpose: SessionPurpose
+    model: str | None
+    effort: str | None
+    status: SessionStatus | None
+    result_summary: str | None
+    finished_at: datetime | None
     created_at: datetime
 
 

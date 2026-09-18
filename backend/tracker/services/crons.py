@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from tracker import models
 from tracker.integrations import linear
-from tracker.services import tags
+from tracker.services import briefs, tags
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
@@ -22,9 +22,11 @@ def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> m
 # What each step of the pass needs from the environment (§2). A step whose settings
 # are not all filled in cannot run, so it is skipped rather than half-done.
 IMPORT_TICKETS = "import tickets from Linear"
+WRITE_BRIEFS = "write ticket briefs"
 
 STEP_SETTINGS = {
     IMPORT_TICKETS: ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
+    WRITE_BRIEFS: ("CLAUDE_BIN", "BRIEFS_DIR", "REPO_DIRS"),
 }
 
 # Linear grades urgency 1 (most urgent) to 4, with 0 meaning "nobody said".
@@ -155,6 +157,8 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
 # Each step of the pass, in the order it runs.
 STEPS = {
     IMPORT_TICKETS: check_new_tickets,
+    # Briefs run after the import, so a ticket born in this pass is briefed in it too.
+    WRITE_BRIEFS: briefs.write_briefs,
 }
 
 

@@ -1,7 +1,27 @@
 from django.db import models
 
 
+class SessionPurpose(models.TextChoices):
+    MANUAL = "manual"
+    TICKET_BRIEF = "ticket_brief"
+    PR_TRIAGE = "pr_triage"
+
+
+class SessionStatus(models.TextChoices):
+    RUNNING = "running"
+    FINISHED = "finished"
+    FAILED = "failed"
+
+
 class Session(models.Model):
+    """A Claude Code session, either registering itself or started by this app.
+
+    A session a human started can only describe itself, so everything about how it was
+    launched is null and its ``purpose`` is ``manual``. A managed session is the other
+    way round: the backend chose the model, the effort and the work, so those columns
+    are filled in and ``status`` tracks the process this app is holding open.
+    """
+
     session_id = models.CharField(max_length=255, primary_key=True)
     name = models.CharField(max_length=100, unique=True)
     directory = models.TextField()
@@ -10,6 +30,22 @@ class Session(models.Model):
     # The ticket this session is working on, as the session last reported it.
     ticket = models.ForeignKey(
         "Ticket", null=True, blank=True, on_delete=models.SET_NULL, related_name="sessions"
+    )
+    # Why this app started the session. ``manual`` means it started itself.
+    purpose = models.CharField(
+        max_length=20, choices=SessionPurpose.choices, default=SessionPurpose.MANUAL
+    )
+    # How it was launched and how it ended: null for a session we did not launch, since
+    # a session that registers itself never tells us any of this.
+    model = models.CharField(max_length=50, null=True, blank=True)
+    effort = models.CharField(max_length=20, null=True, blank=True)
+    status = models.CharField(
+        max_length=20, choices=SessionStatus.choices, null=True, blank=True
+    )
+    result_summary = models.TextField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    cron_run = models.ForeignKey(
+        "CronRun", null=True, blank=True, on_delete=models.SET_NULL, related_name="sessions"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

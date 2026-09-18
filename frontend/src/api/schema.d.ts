@@ -218,6 +218,201 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/crons/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run
+         * @description Record the run here, then let a detached worker do it (§4 C5.1, C5.2).
+         *
+         *     A cron pass talks to Linear, GitHub and Claude Code and takes minutes, which is far
+         *     longer than a request should hold and longer than the autoreloading web process can
+         *     promise to live. So the answer is 202 with a run that is already ``running``: the
+         *     work has been accepted and started elsewhere, and ``GET /crons/summary`` is how the
+         *     caller follows it.
+         *
+         *     Only one pass runs at a time. A caller that arrives while one is in flight is not
+         *     doing anything wrong, so it joins that run with 200 and no second worker is started;
+         *     202 is kept for "I started one". Two callers racing both pass the check above, so
+         *     the last word is the ``one_running_cron_run`` constraint: the loser's INSERT fails
+         *     and it joins the winner's run like any other late caller.
+         */
+        post: operations["tracker_api_crons_start_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/crons/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Crons Summary */
+        get: operations["tracker_api_crons_crons_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/crons/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["tracker_api_crons_list_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/crons/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["tracker_api_crons_get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Alerts
+         * @description The open alerts, or the whole history when ``dismissed=true``.
+         *
+         *     The page is a to-do list (§4 C5.6), so a dismissed alert leaves it by default;
+         *     nothing is deleted, and the flag asks for the full history instead.
+         */
+        get: operations["tracker_api_alerts_list_alerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/alerts/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Alerts Summary
+         * @description What the nav badge counts: the same rows the default list shows.
+         */
+        get: operations["tracker_api_alerts_alerts_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/alerts/{alert_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Alert
+         * @description Mark an alert handled. A second call is a no-op in the A14 sense: 200, and the
+         *     stored ``dismissed_at`` stays the moment the first call wrote, so the history does
+         *     not lie about when the work was done.
+         */
+        post: operations["tracker_api_alerts_dismiss_alert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Pull Requests */
+        get: operations["tracker_api_pull_requests_list_pull_requests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pull-requests/{pull_request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Pull Request */
+        get: operations["tracker_api_pull_requests_get_pull_request"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Pull Request
+         * @description Link a PR to the ticket a person says it belongs to (C3.7).
+         *
+         *     The identifier match only fires when a branch, title or body names a ticket this
+         *     app already holds, so a branch cut before its ticket existed arrives unlinked and
+         *     stays that way until somebody finishes the job by hand.
+         *
+         *     Checks run in the A3 order every mutating endpoint here keeps — 404 for the pull
+         *     request, then 400 for the actor, then 400 for the ticket — so a request that names
+         *     two unknown things is told about the pull request first and writes nothing either
+         *     way.
+         */
+        patch: operations["tracker_api_pull_requests_patch_pull_request"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -267,6 +462,16 @@ export interface components {
          * @enum {string}
          */
         TaskState: "todo" | "in_progress" | "done" | "cancelled";
+        /**
+         * TicketBrief
+         * @description Where a ticket's brief was written; the bytes come from the brief endpoint.
+         */
+        TicketBrief: {
+            /** Md Path */
+            md_path: string;
+            /** Html Path */
+            html_path: string;
+        };
         /** TicketDetail */
         TicketDetail: {
             /** Id */
@@ -280,6 +485,8 @@ export interface components {
             needs_human_eyes: boolean;
             /** Linear Url */
             linear_url: string | null;
+            /** Linear Identifier */
+            linear_identifier: string | null;
             /** Project */
             project: string | null;
             /** Labels */
@@ -305,6 +512,9 @@ export interface components {
             tasks: components["schemas"]["Task"][];
             /** Timeline */
             timeline: components["schemas"]["TimelineEntry"][];
+            brief: components["schemas"]["TicketBrief"] | null;
+            /** Pull Requests */
+            pull_requests: components["schemas"]["TicketPullRequest"][];
         };
         /** TicketListItem */
         TicketListItem: {
@@ -319,6 +529,8 @@ export interface components {
             needs_human_eyes: boolean;
             /** Linear Url */
             linear_url: string | null;
+            /** Linear Identifier */
+            linear_identifier: string | null;
             /** Project */
             project: string | null;
             /** Labels */
@@ -335,6 +547,20 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * TicketPullRequest
+         * @description A PR on the ticket it is work on: enough to name it and to open it on GitHub.
+         */
+        TicketPullRequest: {
+            /** Id */
+            id: number;
+            /** Number */
+            number: number;
+            /** Url */
+            url: string;
+            /** State */
+            state: string;
         };
         /**
          * TicketRef
@@ -508,7 +734,7 @@ export interface components {
          * TaskHistoryKind
          * @enum {string}
          */
-        TaskHistoryKind: "state_change" | "field_change";
+        TaskHistoryKind: "state_change" | "field_change" | "created";
         /** TaskCreate */
         TaskCreate: {
             /** Title */
@@ -526,7 +752,10 @@ export interface components {
             /** Actor Session Id */
             actor_session_id: string;
         };
-        /** Session */
+        /**
+         * Session
+         * @description A11/A10, plus how a managed session was launched: null for a manual one.
+         */
         Session: {
             /** Session Id */
             session_id: string;
@@ -540,12 +769,32 @@ export interface components {
             last_message_at: string | null;
             /** Ticket Id */
             ticket_id: number | null;
+            purpose: components["schemas"]["SessionPurpose"];
+            /** Model */
+            model: string | null;
+            /** Effort */
+            effort: string | null;
+            status: components["schemas"]["SessionStatus"] | null;
+            /** Result Summary */
+            result_summary: string | null;
+            /** Finished At */
+            finished_at: string | null;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
         };
+        /**
+         * SessionPurpose
+         * @enum {string}
+         */
+        SessionPurpose: "manual" | "ticket_brief" | "pr_triage";
+        /**
+         * SessionStatus
+         * @enum {string}
+         */
+        SessionStatus: "running" | "finished" | "failed";
         /** SessionIn */
         SessionIn: {
             /** Directory */
@@ -584,6 +833,138 @@ export interface components {
             state: components["schemas"]["TaskState"];
             /** Reason */
             reason?: string | null;
+            /** Actor Session Id */
+            actor_session_id: string;
+        };
+        /** CronRun */
+        CronRun: {
+            /** Id */
+            id: number;
+            status: components["schemas"]["CronRunStatus"];
+            trigger: components["schemas"]["CronRunTrigger"];
+            /** Summary */
+            summary: string;
+            /** Error */
+            error: string;
+            /** Pid */
+            pid: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /**
+         * CronRunStatus
+         * @enum {string}
+         */
+        CronRunStatus: "running" | "finished" | "failed";
+        /**
+         * CronRunTrigger
+         * @enum {string}
+         */
+        CronRunTrigger: "api" | "command";
+        /**
+         * CronsSummary
+         * @description What the header needs to show a run in flight and what the last one did.
+         */
+        CronsSummary: {
+            /** Running */
+            running: boolean;
+            last_run: components["schemas"]["CronRun"] | null;
+        };
+        /** Alert */
+        Alert: {
+            /** Id */
+            id: number;
+            kind: components["schemas"]["AlertKind"];
+            /** Message */
+            message: string;
+            ticket: components["schemas"]["TicketRef"] | null;
+            session: components["schemas"]["Actor"] | null;
+            pull_request: components["schemas"]["PullRequestRef"] | null;
+            /** Cron Run Id */
+            cron_run_id: number | null;
+            /** Dismissed At */
+            dismissed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * AlertKind
+         * @enum {string}
+         */
+        AlertKind: "new_ticket" | "pr_triaged" | "pr_unlinked" | "cron_error";
+        /**
+         * PullRequestRef
+         * @description Just enough of a pull request to render a link to it.
+         */
+        PullRequestRef: {
+            /** Id */
+            id: number;
+            /** Number */
+            number: number;
+        };
+        /**
+         * AlertsSummary
+         * @description What the nav badge shows: how many alerts are still waiting on a human.
+         */
+        AlertsSummary: {
+            /** Undismissed Count */
+            undismissed_count: number;
+        };
+        /**
+         * PullRequestItem
+         * @description A pull request as this app last saw it on GitHub.
+         *
+         *     ``state`` is lower-cased on the way in, so it reads like every other state in this
+         *     API rather than like ``gh``'s shouting.
+         */
+        PullRequestItem: {
+            /** Id */
+            id: number;
+            /** Repo */
+            repo: string;
+            /** Number */
+            number: number;
+            /** Url */
+            url: string;
+            /** Title */
+            title: string;
+            /** Branch */
+            branch: string;
+            /** Head Sha */
+            head_sha: string;
+            /** State */
+            state: string;
+            /** Author */
+            author: string;
+            /** Ticket Id */
+            ticket_id: number | null;
+            /**
+             * Comment Count
+             * @default 0
+             */
+            comment_count?: number;
+            last_triage_session?: components["schemas"]["Actor"] | null;
+        };
+        /**
+         * PullRequestPatch
+         * @description A person saying which ticket a PR is work on, when the matcher could not (C3.7).
+         */
+        PullRequestPatch: {
+            /** Ticket Id */
+            ticket_id: number;
             /** Actor Session Id */
             actor_session_id: string;
         };
@@ -976,6 +1357,229 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_crons_start_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronRun"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronRun"];
+                };
+            };
+        };
+    };
+    tracker_api_crons_crons_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronsSummary"];
+                };
+            };
+        };
+    };
+    tracker_api_crons_list_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronRun"][];
+                };
+            };
+        };
+    };
+    tracker_api_crons_get_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronRun"];
+                };
+            };
+        };
+    };
+    tracker_api_alerts_list_alerts: {
+        parameters: {
+            query?: {
+                dismissed?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Alert"][];
+                };
+            };
+        };
+    };
+    tracker_api_alerts_alerts_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertsSummary"];
+                };
+            };
+        };
+    };
+    tracker_api_alerts_dismiss_alert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alert_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Alert"];
+                };
+            };
+        };
+    };
+    tracker_api_pull_requests_list_pull_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestItem"][];
+                };
+            };
+        };
+    };
+    tracker_api_pull_requests_get_pull_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pull_request_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestItem"];
+                };
+            };
+        };
+    };
+    tracker_api_pull_requests_patch_pull_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pull_request_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PullRequestPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestItem"];
                 };
             };
         };

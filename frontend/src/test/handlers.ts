@@ -45,6 +45,7 @@ export function makeTicket(overrides: Partial<TicketListItem> = {}): TicketListI
     project: null,
     labels: [],
     linear_url: null,
+    linear_identifier: null,
     parent_id: null,
     created_at: "2026-09-12T10:00:00Z",
     updated_at: "2026-09-12T10:00:00Z",
@@ -127,9 +128,20 @@ export function makeTicketDetail(overrides: Partial<TicketDetail> = {}): TicketD
     parent = null,
     children = [],
     tasks = [],
+    brief = null,
+    pull_requests = [],
     ...listOverrides
   } = overrides
-  return { ...makeTicket(listOverrides), description, timeline, parent, children, tasks }
+  return {
+    ...makeTicket(listOverrides),
+    description,
+    timeline,
+    parent,
+    children,
+    tasks,
+    brief,
+    pull_requests,
+  }
 }
 
 /** The reserved human actor (memo A1). */

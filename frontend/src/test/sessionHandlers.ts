@@ -19,6 +19,13 @@ export function makeSession(overrides: Partial<Session> = {}): Session {
     last_message: null,
     last_message_at: null,
     ticket_id: null,
+    // Defaults describe a session a human registered by hand: nothing managed it.
+    purpose: "manual",
+    model: null,
+    effort: null,
+    status: null,
+    result_summary: null,
+    finished_at: null,
     created_at: "2026-09-12T10:00:00Z",
     ...overrides,
   }

@@ -343,3 +343,138 @@ def test_triage_prompt_targets_the_pr_and_asks_for_the_analysis_json_at_a_path_u
     ), item
     assert "suggested_comment" in item.get("properties", {}), item
     assert "suggested_comment" not in item.get("required", []), item
+
+
+def test_triage_session_cannot_post_edit_or_change_git_state(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A triage reads the PR and writes one JSON file; it can do nothing else (§4 C4.4, §6).
+
+    This session is pointed at a real working copy of a real repository and told to
+    judge what reviewers said about an open PR, and it runs unattended with
+    ``--permission-prompts none``, which means nothing will stop it at the moment it
+    decides to act. The damage available to it is not hypothetical: the skill's whole
+    subject is review comments, so writing a reply to one is the most natural next
+    step it could take, and a reply posted by a machine in the user's name — on a PR
+    other people are reading — cannot be recalled. Every reply it drafts must instead
+    end up in a task behind the human gate (C4.6), which is only a guarantee if the
+    session could not have posted it directly. So ``gh pr comment`` and ``gh pr
+    review`` are denied, and with them the three ways ``gh api`` stops being a read:
+    ``-X``/``--method`` name a verb, and ``graphql`` carries the mutation in its body.
+
+    The second hazard is the checkout. A triage may well conclude that a reviewer is
+    right and know exactly which line to change, and the plan for that change belongs
+    in a task, not in the working tree a human is using for their own work. ``Edit``
+    is denied so it cannot rewrite the code it is reading, and ``git commit``,
+    ``git push`` and ``git checkout`` are denied so it can neither record such a
+    change nor move the branch out from under whoever is on it.
+
+    What remains has to be enough to do the job: reading the PR and its diff, the
+    ``gh api`` GETs that fetch the comment feeds, and ``git fetch`` plus ``git show``,
+    which are how the session reads the PR's own code when the checkout is parked on
+    a different branch. Note that ``Bash(gh api:*)`` is allowed while the mutating
+    forms are denied — the allow list opens the command and the deny list closes the
+    ways it writes, so both halves have to be right for a read to still work.
+
+    Tools are a fence, not an instruction, and the model behaves better when it knows
+    why the fence is there, so ``--append-system-prompt`` must also say in words that
+    this session never posts.
+
+    The setup is C4.3's: one PR whose review comments are still waiting on an answer,
+    every other feed empty, the per-run budget raised so a brief cannot crowd the
+    triage out. The assertions are made on the argv the real ``claude`` binary would
+    have received, which is the boundary this guarantee actually lives at.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+
+    run_cron(client)
+
+    triage_calls = [
+        call
+        for call in fake_processes.calls_to("claude")
+        if TRIAGE_SKILL in (call.arg_after("-p") or "")
+    ]
+    assert len(triage_calls) == 1, fake_processes.argvs_to("claude")
+    call = triage_calls[0]
+
+    disallowed = call.values_after("--disallowedTools")
+    for forbidden in (
+        "Edit",
+        "Bash(gh pr comment:*)",
+        "Bash(gh pr review:*)",
+        "Bash(gh api -X:*)",
+        "Bash(gh api --method:*)",
+        "Bash(gh api graphql:*)",
+        "Bash(git commit:*)",
+        "Bash(git push:*)",
+        "Bash(git checkout:*)",
+    ):
+        assert forbidden in disallowed, (forbidden, call.argv)
+
+    allowed = call.values_after("--allowedTools")
+    for needed in (
+        "Bash(gh pr view:*)",
+        "Bash(gh pr diff:*)",
+        "Bash(gh api:*)",
+        "Bash(git fetch:*)",
+        "Bash(git show:*)",
+    ):
+        assert needed in allowed, (needed, call.argv)
+
+    system_prompt = call.arg_after("--append-system-prompt")
+    assert system_prompt is not None, call.argv
+    about_posting = [
+        sentence
+        for sentence in re.split(r"[.\n]", system_prompt.lower())
+        if "post" in sentence
+    ]
+    assert about_posting, system_prompt
+    assert any(
+        "never" in sentence or "not" in sentence or "no " in sentence
+        for sentence in about_posting
+    ), about_posting

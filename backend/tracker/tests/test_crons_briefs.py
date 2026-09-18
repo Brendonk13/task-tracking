@@ -371,3 +371,63 @@ def test_failed_or_timed_out_claude_run_marks_session_failed_and_raises_cron_err
     assert len(failures) == 1, client.get("/alerts").json()
     assert failures[0]["session"]["name"] == session["name"]
     assert failures[0]["session"]["directory"] == session["directory"]
+
+
+def test_ticket_with_a_brief_or_a_running_brief_session_is_not_briefed_again(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A brief costs real money, so a ticket is only ever briefed once (§4 C2.7).
+
+    The cron runs on a schedule and Linear keeps returning the same active issues, so
+    without a rule the tracker would re-brief every ticket every quarter of an hour and
+    burn the budget on work it already has. The first run here is the well-behaved one
+    from C2.4: the fake ``claude`` writes the ``.md`` and the ``.html`` into
+    ``BRIEFS_DIR`` and reports those paths, so afterwards the tickets have stored briefs
+    and finished sessions. The second run then sees exactly the same Linear fixtures —
+    nothing new has appeared — and must start no ``claude`` at all. That is asserted by
+    counting the invocations recorded at the process boundary either side of the second
+    run, because it is the process, not any decision inside our own code, that spends
+    the money.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+
+    briefs_dir = Path(cron_settings.BRIEFS_DIR)
+    md_path = briefs_dir / "2026-09-17-CON-7.md"
+    html_path = briefs_dir / "2026-09-17-CON-7.html"
+
+    envelope = fakes.fixture_json("claude/ticket_brief_ok.json")
+    structured = dict(envelope["structured_output"])
+    structured["md_path"] = str(md_path)
+    structured["html_path"] = str(html_path)
+    envelope["structured_output"] = structured
+    envelope["result"] = json.dumps(structured)
+
+    def write_the_brief(call) -> None:
+        """Write the brief the way the skill does: one dated pair per identifier."""
+        identifier = (call.arg_after("-p") or " ").split()[1]
+        (briefs_dir / f"2026-09-17-{identifier}.md").write_text(f"# {identifier}\n")
+        (briefs_dir / f"2026-09-17-{identifier}.html").write_text(
+            f"<!doctype html><html><body><h1>{identifier}</h1></body></html>"
+        )
+        md_path.write_text("# CON-7\n")
+        html_path.write_text("<!doctype html><html><body><h1>CON-7</h1></body></html>")
+
+    fake_processes.on("claude", stdout=json.dumps(envelope), side_effect=write_the_brief)
+
+    run_cron(client)
+
+    after_first_run = len(fake_processes.calls_to("claude"))
+    assert after_first_run, "no claude process was started by the first run at all"
+
+    briefed = [
+        ticket
+        for ticket in client.get("/tickets").json()
+        if client.get(f"/tickets/{ticket['id']}").json().get("brief")
+    ]
+    assert briefed, "the first run stored no brief, so there is nothing to re-brief"
+
+    run_cron(client)
+
+    assert len(fake_processes.calls_to("claude")) == after_first_run, (
+        fake_processes.argvs_to("claude")
+    )

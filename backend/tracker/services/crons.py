@@ -60,12 +60,21 @@ def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
     so no ``field_change`` timeline entry is written for them. There is nobody to
     attribute such a change to, and a reader wants the issue's history from Linear, not
     a replay of the import.
+
+    Only issues we have never seen before are born here. The cron runs every fifteen
+    minutes over the same open issues, so an issue that already has a ticket is left
+    untouched — not re-saved with identical values, which would move ``updated_at`` and
+    make every pass look like a change.
     """
     client = linear.LinearClient(settings.LINEAR_API_KEY)
     issues = client.assigned_active_issues(settings.LINEAR_ASSIGNEE_EMAIL)
 
+    known = set(models.Ticket.objects.values_list("linear_id", flat=True))
+
     imported = []
     for issue in issues:
+        if issue.id in known:
+            continue
         ticket = models.Ticket.objects.create(
             title=issue.title,
             description=issue.description,

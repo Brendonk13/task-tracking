@@ -226,3 +226,85 @@ def test_second_run_does_not_duplicate_prs_and_refreshes_state_of_prs_no_longer_
         number = pull_request["number"]
         assert second_run[number]["id"] == first_run[number]["id"], second_run[number]
         assert second_run[number]["state"] == "open", second_run[number]
+
+
+def test_review_issue_and_review_summary_comments_are_imported_once(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A PR's three comment feeds become one comment each, however often we look (§4 C3.5).
+
+    GitHub keeps the conversation on a pull request in three places, and a triage that
+    reads only one of them would answer half the review: inline comments on the diff
+    (``pulls/{n}/comments``, threaded through ``in_reply_to_id``), comments on the PR as
+    an issue (``issues/{n}/comments``, where the bots talk), and the reviews themselves
+    (``reviews``), whose body is the "I looked at this and here is what I think" note.
+    All three are paginated, so all three are read with ``gh api --paginate`` — a plain
+    ``gh api`` would silently stop at thirty comments on a busy PR.
+
+    A review with an empty body is not a comment. It is the wrapper GitHub creates around
+    inline comments, and its inline comments already arrived on the first feed, so
+    counting it would invent something nobody wrote: two of the three captured reviews
+    are exactly that. Hence ``comment_count`` is the review comments plus the issue
+    comments plus the one review that actually says something.
+
+    Then the run happens again, over the same three feeds. Comments are identified by
+    what kind they are and the id GitHub gave them, so re-reading a feed recognises every
+    comment it already has and the count does not move. Without that, every cron tick
+    would double the conversation and every comment would look new to triage.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    def serve_feed(segment: str, name: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` with a fixture.
+
+        The path is a single argv word (``repos/o/r/pulls/9964/comments``), so the match
+        is on a piece of that word rather than on a word of its own. Every PR is served
+        the same capture: which PR the comments came from is not what this test is about.
+        """
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=fakes.fixture_text(name),
+            )
+        )
+
+    serve_feed("/pulls/", "gh/review_comments.json")
+    serve_feed("/issues/", "gh/issue_comments.json")
+    serve_feed("/reviews", "gh/reviews.json")
+
+    review_comments = fixture_json("gh/review_comments.json")
+    issue_comments = fixture_json("gh/issue_comments.json")
+    reviews = fixture_json("gh/reviews.json")
+    spoken_reviews = [review for review in reviews if review["body"].strip()]
+    assert len(spoken_reviews) < len(reviews), "the fixture no longer has a body-less review"
+    assert all(comment["body"].strip() for comment in review_comments + issue_comments)
+    expected_count = len(review_comments) + len(issue_comments) + len(spoken_reviews)
+
+    numbers = sorted(pr["number"] for pr in fixture_json("gh/pr_list.json"))
+
+    for run in (1, 2):
+        run_cron(client)
+
+        prs = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+        assert sorted(prs) == numbers, prs
+        for number in numbers:
+            response = client.get(f"/pull-requests/{prs[number]['id']}")
+            assert response.status_code == 200, response.content
+            detail = response.json()
+            assert detail["comment_count"] == expected_count, (run, number, detail)
+
+    api_calls = [call for call in fake_processes.calls_to("gh") if "api" in call.argv]
+    for call in api_calls:
+        assert call.argv[1] == "api", call.argv
+        assert "--paginate" in call.argv, call.argv
+        assert not any(arg.startswith("-X") or arg == "--method" for arg in call.argv), call.argv
+
+    for number in numbers:
+        paths = {arg for call in api_calls for arg in call.argv if str(number) in arg}
+        assert any(f"/pulls/{number}/comments" in path for path in paths), paths
+        assert any(f"/issues/{number}/comments" in path for path in paths), paths
+        assert any(path.endswith(f"/pulls/{number}/reviews") for path in paths), paths

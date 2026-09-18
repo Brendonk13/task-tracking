@@ -5,9 +5,17 @@ from ninja.errors import HttpError
 from tracker import models
 
 HUMAN = "human"
+CRON = "cron"
 
 
-HUMAN_ACTOR = {"session_id": HUMAN, "name": HUMAN, "directory": None}
+def _reserved_view(session_id: str) -> dict:
+    return {"session_id": session_id, "name": session_id, "directory": None}
+
+
+# The two actors that write without ever registering a session: the person at the
+# keyboard, and the backend writing on its own behalf. No Session row may claim
+# either name, so they are resolved here instead of from the database.
+RESERVED_ACTORS = {name: _reserved_view(name) for name in (HUMAN, CRON)}
 
 
 def _view(session: models.Session) -> dict:
@@ -33,8 +41,8 @@ def actor_view(actor_session_id: str) -> dict:
     Falls back to ``_fallback_view`` when no such session is registered; use
     ``require_actor`` when a missing session must be an error.
     """
-    if actor_session_id == HUMAN:
-        return HUMAN_ACTOR
+    if actor_session_id in RESERVED_ACTORS:
+        return RESERVED_ACTORS[actor_session_id]
     session = models.Session.objects.filter(session_id=actor_session_id).first()
     return _view(session) if session is not None else _fallback_view(actor_session_id)
 
@@ -46,15 +54,15 @@ def attach_actors(entries) -> None:
     back to a per-entry lookup when it is absent.
     """
     entries = list(entries)
-    wanted = {e.actor_session_id for e in entries} - {HUMAN}
+    wanted = {e.actor_session_id for e in entries} - set(RESERVED_ACTORS)
     by_id = {
         s.session_id: _view(s)
         for s in models.Session.objects.filter(session_id__in=wanted)
     }
     for entry in entries:
         sid = entry.actor_session_id
-        if sid == HUMAN:
-            entry.actor = HUMAN_ACTOR
+        if sid in RESERVED_ACTORS:
+            entry.actor = RESERVED_ACTORS[sid]
         else:
             entry.actor = by_id.get(sid) or _fallback_view(sid)
 
@@ -64,8 +72,8 @@ def require_actor(actor_session_id: str) -> dict:
 
     Raises ``HttpError(400, "unknown actor")`` when no such session is registered.
     """
-    if actor_session_id == HUMAN:
-        return HUMAN_ACTOR
+    if actor_session_id in RESERVED_ACTORS:
+        return RESERVED_ACTORS[actor_session_id]
     session = models.Session.objects.filter(session_id=actor_session_id).first()
     if session is None:
         raise HttpError(400, "unknown actor")

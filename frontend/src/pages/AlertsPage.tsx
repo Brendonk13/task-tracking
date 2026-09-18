@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom"
-import { ExternalLink } from "lucide-react"
-import { useAlerts } from "@/api/hooks/alerts"
+import { ExternalLink, X } from "lucide-react"
+import { useAlerts, useDismissAlert } from "@/api/hooks/alerts"
 import { usePullRequests } from "@/api/hooks/pull-requests"
 import { ResumeSessionButton } from "@/components/sessions/ResumeSessionButton"
+import { Button } from "@/components/ui/button"
 import {
   Table,
   TableBody,
@@ -18,6 +19,7 @@ export function AlertsPage() {
   // An alert only names its pull request (id and number), so the GitHub url comes from
   // the pull request listing, matched on id.
   const pullRequests = usePullRequests()
+  const dismiss = useDismissAlert()
   const isPending = alerts.isPending || pullRequests.isPending
   const isError = alerts.isError || pullRequests.isError
   const urlByPullRequestId = new Map(pullRequests.data?.map((pr) => [pr.id, pr.url]))
@@ -45,7 +47,7 @@ export function AlertsPage() {
               <TableHead className="w-56">Ticket</TableHead>
               <TableHead className="w-28">Pull request</TableHead>
               <TableHead className="w-36">Raised</TableHead>
-              <TableHead className="w-12">
+              <TableHead className="w-24">
                 <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
@@ -91,7 +93,7 @@ export function AlertsPage() {
                   <TableCell className="text-muted-foreground">
                     <time dateTime={alert.created_at}>{formatRelativeTime(alert.created_at)}</time>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="flex items-center justify-end gap-1">
                     {/* A managed run with no directory has nowhere to cd to (F3.5). */}
                     {alert.session !== null && alert.session.directory !== null && (
                       <ResumeSessionButton
@@ -100,6 +102,15 @@ export function AlertsPage() {
                         name={alert.session.name}
                       />
                     )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Dismiss"
+                      onClick={() => dismiss.mutate(alert.id)}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               )

@@ -774,3 +774,170 @@ def test_all_suggested_replies_are_collected_into_one_task_blocked_by_the_gate(
         assert item["url"] in description, (item["id"], description)
 
     assert replies_task["blocked_by"] == [gate["id"]], replies_task
+
+
+def test_triaged_ticket_is_blocked_flagged_and_alerted(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A triage does not finish the work; it hands the ticket to a person (§4 C4.7, §5).
+
+    Everything the run has produced by this point is waiting on a human: the tasks are
+    all behind the gate (C4.5, C4.6), so nobody may start any of them, and the drafted
+    replies are sitting in a description nobody has sent. A ticket left in whatever
+    state it was in would therefore be work that looks ordinary and is in fact stalled —
+    a coding session could pick it up, find every task blocked, and have no idea why.
+    So the ticket is put in ``blocked`` and flagged for human eyes, which are the two
+    signals this app already has for "a person is needed here": the status says the work
+    cannot proceed, the flag puts the ticket on the needs-human-eyes badge and filter a
+    person actually watches.
+
+    Both writes have to say *why*, and the why is a specific pull request. A ``blocked``
+    with no reason naming the PR would leave whoever opens the ticket to guess which of
+    its pull requests stalled it, so the ``status_change`` entry's ``reason`` names the
+    number. And both entries have to be attributed to the triage session, not to
+    ``cron``: writes derived from a session's output are made as that session (§1), so
+    the timeline points at the transcript that decided this, which is the only way to
+    check the decision.
+
+    The alert is the third signal and the only one that finds a person who is not
+    already looking at the ticket. It has to carry all three links, because each answers
+    a different question the reader has at once: the ticket is where the tasks and the
+    gate are, the pull request is the conversation being answered, and the session is
+    what produced the judgements — carried as the whole ``Actor`` (A1) rather than an
+    id, so the alerts page can name it and render the resume button that opens its
+    transcript. An alert holding only a message would make the reader search for all
+    three by hand.
+
+    Last, the pull request itself remembers which session triaged it. That is what makes
+    a second look possible from the PR side: a person reading the PR row can get back to
+    the run that judged its comments without going through the ticket.
+
+    The setup is C4.5's: one hand-raised ticket for the PR's identifier, one PR whose
+    review comments are still waiting on an answer, every other feed empty, the per-run
+    budget raised so a brief cannot crowd the triage out, and the ``claude`` fake
+    behaving as the real skill does on the success path. The session under test is
+    identified by the ``--session-id`` the triage ``claude`` was launched with, so no
+    assertion here depends on which session the run happened to create first.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+    cron_settings.CRON_MAX_SESSIONS_PER_RUN = 10
+    fake_processes.on_fixture("gh", "pr", "list", name="gh/pr_list.json")
+
+    pull_request = next(
+        pr
+        for pr in fixture_json("gh/pr_list.json")
+        if TRIAGED_IDENTIFIER.lower() in pr["headRefName"].lower()
+    )
+    number = pull_request["number"]
+
+    def serve_feed(segment: str, stdout: str) -> None:
+        """Answer ``gh api`` reads whose path contains ``segment`` (as in C4.2)."""
+        fake_processes.replies.append(
+            fakes.Reply(
+                match=lambda argv, segment=segment: argv[0].endswith("gh")
+                and "api" in argv
+                and any(segment in arg for arg in argv),
+                stdout=stdout,
+            )
+        )
+
+    serve_feed("", "[]")  # every other PR's feeds are empty, so nothing is pending there
+    serve_feed(f"/pulls/{number}/comments", fakes.fixture_text("gh/review_comments.json"))
+
+    analysis = fixture_json("claude/triage_ok.json")["structured_output"]
+    analysis["pr"] = {**analysis["pr"], "number": number}
+
+    def write_the_analysis(call: fakes.Call) -> None:
+        """Do what the skill does: write the analysis to the path the prompt named."""
+        triage_dir = Path(cron_settings.CRON_WORK_DIR) / "triage"
+        prompt = call.arg_after("-p") or ""
+        wanted = [
+            word.strip("'\"`,.;:()")
+            for word in re.split(r"\s+", prompt)
+            if word.strip("'\"`,.;:()").startswith(str(triage_dir) + "/")
+        ]
+        assert wanted, (triage_dir, prompt)
+        path = Path(wanted[0])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(analysis))
+
+    fake_processes.on("claude", stdout=fakes.claude_result(result="brief skipped"))
+    fake_processes.replies.append(
+        fakes.Reply(
+            match=lambda argv: argv[0].endswith("claude")
+            and any(TRIAGE_SKILL in arg for arg in argv),
+            stdout=fakes.claude_result(analysis),
+            side_effect=write_the_analysis,
+        )
+    )
+
+    raised = client.post(
+        "/tickets",
+        json={
+            "title": f"Hand-raised for {TRIAGED_IDENTIFIER}",
+            "linear_url": (
+                f"https://linear.app/avantos/issue/{TRIAGED_IDENTIFIER}/unskip-forms-auto-save"
+            ),
+            "actor_session_id": "human",
+        },
+    )
+    assert raised.status_code == 201, raised.content
+    ticket_id = raised.json()["id"]
+
+    run_cron(client)
+
+    triage_calls = [
+        call
+        for call in fake_processes.calls_to("claude")
+        if TRIAGE_SKILL in (call.arg_after("-p") or "")
+    ]
+    assert len(triage_calls) == 1, fake_processes.argvs_to("claude")
+    session_id = triage_calls[0].arg_after("--session-id")
+
+    sessions = {session["session_id"]: session for session in client.get("/sessions").json()}
+    assert session_id in sessions, sessions
+    session_name = sessions[session_id]["name"]
+
+    detail = client.get(f"/tickets/{ticket_id}")
+    assert detail.status_code == 200, detail.content
+    ticket = detail.json()
+
+    assert ticket["status"] == "blocked", ticket["status"]
+    status_changes = [
+        entry
+        for entry in ticket["timeline"]
+        if entry["kind"] == "status_change" and entry["to_status"] == "blocked"
+    ]
+    assert len(status_changes) == 1, ticket["timeline"]
+    blocked = status_changes[0]
+    assert blocked["actor"]["session_id"] == session_id, blocked
+    assert blocked["actor"]["name"] == session_name, blocked
+    assert f"#{number}" in (blocked["reason"] or ""), blocked
+
+    assert ticket["needs_human_eyes"] is True, ticket
+    flag_changes = [entry for entry in ticket["timeline"] if entry["kind"] == "flag_change"]
+    assert len(flag_changes) == 1, ticket["timeline"]
+    assert flag_changes[0]["actor"]["session_id"] == session_id, flag_changes[0]
+
+    prs = {pr["number"]: pr for pr in client.get("/pull-requests").json()}
+    pull_request_id = prs[number]["id"]
+
+    alerts = client.get("/alerts")
+    assert alerts.status_code == 200, alerts.content
+    triaged_alerts = [alert for alert in alerts.json() if alert["kind"] == "pr_triaged"]
+    assert len(triaged_alerts) == 1, alerts.json()
+    alert = triaged_alerts[0]
+    assert alert["ticket"] and alert["ticket"]["id"] == ticket_id, alert
+    assert alert["pull_request"] and alert["pull_request"]["number"] == number, alert
+    assert alert["session"], alert
+    assert alert["session"]["session_id"] == session_id, alert
+    assert alert["session"]["name"] == session_name, alert
+    # A1/F3.5: the resume button is only rendered when the actor carries a directory.
+    assert alert["session"]["directory"] == cron_settings.REPO_DIRS[PR_REPO], alert
+
+    pr_detail = client.get(f"/pull-requests/{pull_request_id}")
+    assert pr_detail.status_code == 200, pr_detail.content
+    last_triage_session = pr_detail.json()["last_triage_session"]
+    assert last_triage_session, pr_detail.json()
+    assert last_triage_session["session_id"] == session_id, last_triage_session
+    assert last_triage_session["name"] == session_name, last_triage_session

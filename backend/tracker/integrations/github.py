@@ -93,8 +93,30 @@ class GhClient:
             )
         ]
 
-    def _query(self, *arguments: str) -> list:
-        """Run one ``gh`` listing and parse the items it printed.
+    def pr(self, repo: str, number: int) -> PullRequestSummary:
+        """What GitHub currently says about one pull request in ``repo``.
+
+        A listing only ever answers with the PRs that still match it, so a PR that has
+        left ``--state open`` can only be asked about by name: this is how a row learns
+        it was merged or closed instead of sitting at ``open`` forever.
+        """
+        return PullRequestSummary.from_json(
+            self._query(
+                "pr",
+                "view",
+                str(number),
+                "--repo",
+                repo,
+                "--json",
+                ",".join(PR_FIELDS),
+            )
+        )
+
+    def _query(self, *arguments: str):
+        """Run one ``gh`` question and parse what it printed.
+
+        ``gh`` answers a listing with an array and a single ``pr view`` with an object,
+        so the shape belongs to the caller that asked the question.
 
         ``gh`` reports trouble — a repo that is gone, an expired login — by exiting
         non-zero with a sentence on stderr, so that sentence is what the alert quotes:

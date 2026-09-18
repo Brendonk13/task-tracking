@@ -25,6 +25,10 @@ IMPORT_TICKETS = "import tickets from Linear"
 WRITE_BRIEFS = "write ticket briefs"
 IMPORT_PRS = "import pull requests from GitHub"
 
+# The state ``gh`` gives a pull request that is still in flight, lower-cased the way a
+# ``PullRequest`` row stores it.
+OPEN = "open"
+
 STEP_SETTINGS = {
     IMPORT_TICKETS: ("LINEAR_API_KEY", "LINEAR_ASSIGNEE_EMAIL"),
     WRITE_BRIEFS: ("CLAUDE_BIN", "BRIEFS_DIR", "REPO_DIRS"),
@@ -170,7 +174,9 @@ def check_new_prs(run: models.CronRun) -> list[models.PullRequest]:
     client = github.GhClient()
     seen = []
     for repo in settings.GITHUB_REPOS:
+        still_open = []
         for pull_request in client.open_prs(repo, settings.GITHUB_USER):
+            still_open.append(pull_request.number)
             row, _created = models.PullRequest.objects.update_or_create(
                 repo=repo,
                 number=pull_request.number,
@@ -185,8 +191,29 @@ def check_new_prs(run: models.CronRun) -> list[models.PullRequest]:
                 },
             )
             seen.append(row)
+        refresh_closed_prs(client, repo, still_open)
     pull_requests.link_to_tickets(seen)
     return seen
+
+
+def refresh_closed_prs(client, repo: str, still_open: list[int]) -> list[models.PullRequest]:
+    """Ask GitHub what became of the PRs that have left the open listing.
+
+    A pull request does not vanish: a row we hold as ``open`` that the listing no longer
+    answers with has been merged or closed, and the listing can never say so because it
+    only returns what still matches it. So each one is asked about by name, and the state
+    GitHub reports replaces the stale ``open`` — otherwise the row would claim the work is
+    still in flight for as long as it exists.
+    """
+    gone = models.PullRequest.objects.filter(repo=repo, state=OPEN).exclude(
+        number__in=still_open
+    )
+    refreshed = []
+    for row in gone:
+        row.state = client.pr(repo, row.number).state
+        row.save(update_fields=["state"])
+        refreshed.append(row)
+    return refreshed
 
 
 # Each step of the pass, in the order it runs.

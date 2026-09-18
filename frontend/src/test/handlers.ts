@@ -3,6 +3,7 @@ import type { components } from "@/api/schema.d.ts"
 import { server } from "./msw"
 
 type TicketsSummary = components["schemas"]["TicketsSummary"]
+type AlertsSummary = components["schemas"]["AlertsSummary"]
 type TicketListItem = components["schemas"]["TicketListItem"]
 type StatusItem = components["schemas"]["StatusItem"]
 type TicketDetail = components["schemas"]["TicketDetail"]
@@ -352,6 +353,14 @@ export function ticketDetailHandler(detail: TicketDetail) {
 export function summaryHandler(needs_human_eyes_count: number) {
   return http.get("/api/tickets/summary", () => {
     const body: TicketsSummary = { needs_human_eyes_count }
+    return HttpResponse.json(body)
+  })
+}
+
+/** MSW handler for `GET /api/alerts/summary` returning the given badge count. */
+export function alertsSummaryHandler(undismissed_count: number) {
+  return http.get("/api/alerts/summary", () => {
+    const body: AlertsSummary = { undismissed_count }
     return HttpResponse.json(body)
   })
 }

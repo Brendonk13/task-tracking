@@ -1,17 +1,17 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { AppShell } from "@/components/layout/AppShell"
-import { recordRequests, summaryHandler } from "@/test/handlers"
+import { alertsSummaryHandler, recordRequests, summaryHandler } from "@/test/handlers"
 import { server } from "@/test/msw"
 import { renderWithProviders } from "@/test/render"
 
 // Icon convention for the sidebar: lucide-react icons, which render as
 // <svg aria-hidden="true">. A nav link "shows an icon" when it contains an <svg>.
 describe("AppShell", () => {
-  // The sidebar fetches the tickets summary for its badge; default to "nothing flagged"
-  // so tests that don't care about the badge still have the request handled.
+  // The sidebar fetches the tickets and alerts summaries for its badges; default both to
+  // "nothing flagged" so tests that don't care about a badge still have the request handled.
   beforeEach(() => {
-    server.use(summaryHandler(0))
+    server.use(summaryHandler(0), alertsSummaryHandler(0))
   })
 
   it("renders sidebar with Tickets and Sessions links showing icon and label", () => {
@@ -82,5 +82,27 @@ describe("AppShell", () => {
     await waitFor(() => expect(requests).toContain("/api/tickets/summary"))
     await waitFor(() => expect(within(tickets).queryByRole("status")).toBeNull())
     expect(within(tickets).queryByText("0")).toBeNull()
+  })
+
+  // Same badge convention, counting undismissed alerts:
+  // <span role="status" aria-label="3 alerts">3</span>
+  it("alerts nav item shows undismissed alert count from summary", async () => {
+    server.use(summaryHandler(2), alertsSummaryHandler(3))
+    renderWithProviders(<AppShell />)
+
+    const nav = screen.getByRole("navigation")
+
+    const alerts = within(nav).getByRole("link", { name: /alerts/i })
+    expect(alerts).toHaveAttribute("href", "/alerts")
+    expect(alerts.querySelector("svg")).not.toBeNull()
+
+    const alertsBadge = await within(alerts).findByText("3")
+    expect(alertsBadge).toHaveAttribute("role", "status")
+    expect(alertsBadge).toHaveAccessibleName(/3 alerts/i)
+
+    // The tickets badge keeps its own, separate count.
+    const tickets = within(nav).getByRole("link", { name: /tickets/i })
+    const ticketsBadge = await within(tickets).findByText("2")
+    expect(ticketsBadge).toHaveAccessibleName(/2 tickets need human eyes/i)
   })
 })

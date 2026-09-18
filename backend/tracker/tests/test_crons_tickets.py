@@ -226,3 +226,29 @@ def test_each_new_ticket_raises_a_new_ticket_alert_linking_to_it(
         assert alert["ticket"] == {"id": ticket["id"], "title": ticket["title"]}
         assert issue["identifier"] in alert["message"], alert["message"]
         assert issue["title"] in alert["message"], alert["message"]
+
+
+def test_linear_graphql_error_records_a_cron_error_and_the_run_still_finishes(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A GraphQL error from Linear is isolated to its step (§4 C1.9).
+
+    Linear answers 200 with an ``errors`` array and no data, which is how it reports
+    a rejected key or a bad query. The run must survive that: nothing imported, the
+    run still ``finished``, and one ``cron_error`` alert carrying the message Linear
+    actually sent — read out of the fixture, so the alert has to quote the wire
+    rather than some wording of our own.
+    """
+    linear_transport.serve("linear/error.json")
+    graphql_message = fixture_json("linear/error.json")["errors"][0]["message"]
+
+    run = run_cron(client)
+
+    assert client.get("/tickets").json() == []
+
+    alerts = client.get("/alerts").json()
+    assert len(alerts) == 1, alerts
+    assert alerts[0]["kind"] == "cron_error"
+    assert graphql_message in alerts[0]["message"], alerts[0]["message"]
+
+    assert run["status"] == "finished"

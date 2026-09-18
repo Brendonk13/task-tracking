@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -195,3 +196,67 @@ def test_ticket_brief_session_can_read_linear_but_every_linear_write_tool_is_dis
     system_prompt = call.arg_after("--append-system-prompt")
     assert system_prompt is not None, call.argv
     assert "READ-ONLY" in system_prompt.upper(), system_prompt
+
+
+def test_brief_paths_from_structured_output_are_stored_and_served(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """The brief the skill wrote is findable afterwards, from the API alone (§4 C2.4).
+
+    The point of spawning the session is the artefact it leaves behind, so the fake
+    ``claude`` does exactly what the real skill does: it writes the ``.md`` and the
+    ``.html`` into ``BRIEFS_DIR`` and then names those two absolute paths in its
+    structured output. The envelope around that output is the captured one, so the
+    keys and nesting are the real binary's, not a guess. Afterwards a human must be
+    able to open the brief from the ticket page — hence the stored path and the
+    served bytes are both asserted — and the session that produced it must read as
+    done, with something to show for itself in ``last_message``.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+
+    briefs_dir = Path(cron_settings.BRIEFS_DIR)
+    md_path = briefs_dir / "2026-09-17-CON-7.md"
+    html_path = briefs_dir / "2026-09-17-CON-7.html"
+    html_body = "<!doctype html><html><body><h1>CON-7</h1><p>Handoff brief.</p></body></html>"
+
+    envelope = fakes.fixture_json("claude/ticket_brief_ok.json")
+    structured = dict(envelope["structured_output"])
+    structured["md_path"] = str(md_path)
+    structured["html_path"] = str(html_path)
+    envelope["structured_output"] = structured
+    envelope["result"] = json.dumps(structured)
+
+    def write_the_brief(call) -> None:
+        md_path.write_text("# CON-7\n\nHandoff brief.\n")
+        html_path.write_text(html_body)
+
+    fake_processes.on(
+        "claude", stdout=json.dumps(envelope), side_effect=write_the_brief
+    )
+
+    run_cron(client)
+
+    con7 = next(
+        ticket
+        for ticket in client.get("/tickets").json()
+        if ticket["linear_identifier"] == "CON-7"
+    )
+    detail = client.get(f"/tickets/{con7['id']}").json()
+    assert detail.get("brief"), f"no brief was stored for CON-7: {detail.get('brief')!r}"
+    assert detail["brief"]["html_path"] == str(html_path)
+
+    served = client.get(f"/tickets/{con7['id']}/brief")
+    assert served.status_code == 200, served.content
+    assert "text/html" in served["Content-Type"], served["Content-Type"]
+    assert served.content.decode() == html_body
+
+    sessions = [
+        session
+        for session in client.get("/sessions").json()
+        if session["ticket_id"] == con7["id"]
+    ]
+    assert len(sessions) == 1, sessions
+    session = sessions[0]
+    assert session["status"] == "finished"
+    assert session["finished_at"] is not None
+    assert session["last_message"], session

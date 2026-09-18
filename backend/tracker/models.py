@@ -267,6 +267,10 @@ class Alert(models.Model):
     cron_run = models.ForeignKey(
         CronRun, null=True, blank=True, on_delete=models.CASCADE, related_name="alerts"
     )
+    # Named by string because PullRequest is declared further down this module.
+    pull_request = models.ForeignKey(
+        "PullRequest", null=True, blank=True, on_delete=models.CASCADE, related_name="alerts"
+    )
     # Null until a human clears it; the column doubles as "is this still open?".
     dismissed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

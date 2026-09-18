@@ -415,6 +415,13 @@ class CronRun(Schema):
     finished_at: datetime | None
 
 
+class PullRequestRef(Schema):
+    """Just enough of a pull request to render a link to it."""
+
+    id: int
+    number: int
+
+
 class Alert(Schema):
     id: int
     kind: AlertKind
@@ -425,6 +432,9 @@ class Alert(Schema):
     # The whole actor, not its id: an alert about a dead session is only actionable if
     # the page can name it and offer to resume it where it was running.
     session: Actor | None
+    # Null unless the alert is about a PR; the alerts page links straight to it, and the
+    # number is the only thing a person reads a pull request by.
+    pull_request: PullRequestRef | None
     cron_run_id: int | None
     dismissed_at: datetime | None
     created_at: datetime

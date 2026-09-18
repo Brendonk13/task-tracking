@@ -72,6 +72,7 @@ def link_to_tickets(pull_requests) -> list[models.PullRequest]:
             continue
         ticket = ticket_for(pull_request, known)
         if ticket is None:
+            flag_unlinked(pull_request)
             continue
         pull_request.ticket = ticket
         pull_request.save(update_fields=["ticket"])
@@ -85,3 +86,27 @@ def link_to_tickets(pull_requests) -> list[models.PullRequest]:
         )
         linked.append(pull_request)
     return linked
+
+
+def flag_unlinked(pull_request: models.PullRequest) -> models.Alert | None:
+    """Raise the standing flag that a PR names no ticket here, once.
+
+    A PR nobody can place is something a person has to sort out — a ticket nobody
+    raised, a typo'd branch — and it stays that way until they do. So the alert means
+    "this PR is still unlinked", not "the cron noticed again": while an undismissed one
+    is already standing for this PR, the pass adds nothing, and fifteen minutes of
+    cron does not bury the alerts page. Once a human dismisses it and the PR is still
+    unlinked, the flag goes back up.
+    """
+    standing = models.Alert.objects.filter(
+        kind=models.AlertKind.PR_UNLINKED,
+        pull_request=pull_request,
+        dismissed_at__isnull=True,
+    ).exists()
+    if standing:
+        return None
+    return models.Alert.objects.create(
+        kind=models.AlertKind.PR_UNLINKED,
+        pull_request=pull_request,
+        message=f"PR #{pull_request.number} matches no ticket: {pull_request.title}",
+    )

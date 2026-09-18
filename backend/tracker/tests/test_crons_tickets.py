@@ -160,3 +160,35 @@ def test_second_run_imports_nothing_new_and_raises_no_new_alerts(
 
     assert client.get("/tickets").json() == tickets_after_first_run
     assert client.get("/alerts").json() == alerts_after_first_run
+
+
+def test_hand_made_ticket_with_matching_identifier_is_adopted_not_duplicated(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A ticket raised by hand for a Linear issue is adopted, not duplicated (§4 C1.7).
+
+    People often raise the ticket here first and paste the Linear URL into it. When
+    the import later meets the same issue it has to recognise it by the identifier
+    in that URL: one ticket for CON-7, still the hand-made row (same ``id``), now
+    carrying its ``linear_identifier``.
+    """
+    linear_url = fixture_json("linear/assigned_page1.json")["data"]["issues"]["nodes"][0]["url"]
+    created = client.post(
+        "/tickets",
+        json={
+            "title": "Handoff dispatch loses the task id",
+            "linear_url": linear_url,
+            "actor_session_id": "human",
+        },
+    )
+    assert created.status_code == 201, created.content
+    hand_made_id = created.json()["id"]
+
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+
+    run_cron(client)
+
+    con7 = [t for t in client.get("/tickets").json() if t["linear_url"] == linear_url]
+    assert len(con7) == 1, con7
+    assert con7[0]["id"] == hand_made_id
+    assert con7[0]["linear_identifier"] == "CON-7"

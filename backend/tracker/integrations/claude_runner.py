@@ -28,6 +28,9 @@ class ClaudeRequest:
     add_dirs: tuple[str, ...] = ()
     json_schema: dict | None = None
     max_budget_usd: float | None = None
+    allowed_tools: tuple[str, ...] = ()
+    disallowed_tools: tuple[str, ...] = ()
+    append_system_prompt: str = ""
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,12 @@ class ClaudeRunner:
         prompt can stop a cron, ``--json-schema`` makes the answer something the caller
         can read instead of prose, ``--add-dir`` grants the one directory outside ``cwd``
         the run must write to, and the budget is the ceiling on a run nobody is watching.
+
+        Because no prompt can stop it, the allow and deny lists are the only thing
+        standing between an unattended run and a write it can never take back, so both
+        are passed the way the binary reads them: the flag once, then every tool as its
+        own argv value. The appended system prompt states the same rule in words, for
+        the model rather than for the permission layer.
         """
         command = [
             self._binary,
@@ -87,6 +96,12 @@ class ClaudeRunner:
         ]
         if request.permission_mode:
             command += ["--permission-mode", request.permission_mode]
+        if request.allowed_tools:
+            command += ["--allowedTools", *request.allowed_tools]
+        if request.disallowed_tools:
+            command += ["--disallowedTools", *request.disallowed_tools]
+        if request.append_system_prompt:
+            command += ["--append-system-prompt", request.append_system_prompt]
         if request.json_schema is not None:
             command += ["--json-schema", json.dumps(request.json_schema)]
         for directory in request.add_dirs:

@@ -266,3 +266,48 @@ def test_brief_paths_from_structured_output_are_stored_and_served(
     assert session["status"] == "finished"
     assert session["finished_at"] is not None
     assert session["last_message"], session
+
+
+def test_brief_written_but_missing_from_output_is_found_by_filename_pattern(
+    client, cron_settings, fake_processes, linear_transport
+):
+    """A silent session still leaves a brief, and we still find it (§4 C2.5).
+
+    Sessions do the work and then forget to report it: the skill writes the ``.md``
+    and the ``.html`` into ``BRIEFS_DIR`` under its own dated naming, and the run ends
+    with no structured output at all — ``claude_result()`` with no structured argument
+    is exactly that envelope. The artefact is on disk either way, so losing it because
+    the model went quiet would be the tracker's fault, not the session's. The brief is
+    therefore looked up by the name the skill uses, and the ticket page must show and
+    serve it just as it would after a well-behaved run.
+    """
+    linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
+
+    briefs_dir = Path(cron_settings.BRIEFS_DIR)
+    md_path = briefs_dir / "2026-09-17-CON-7.md"
+    html_path = briefs_dir / "2026-09-17-CON-7.html"
+    html_body = "<!doctype html><html><body><h1>CON-7</h1><p>Unreported brief.</p></body></html>"
+
+    def write_the_brief(call) -> None:
+        md_path.write_text("# CON-7\n\nUnreported brief.\n")
+        html_path.write_text(html_body)
+
+    fake_processes.on(
+        "claude", stdout=fakes.claude_result(), side_effect=write_the_brief
+    )
+
+    run_cron(client)
+
+    con7 = next(
+        ticket
+        for ticket in client.get("/tickets").json()
+        if ticket["linear_identifier"] == "CON-7"
+    )
+    detail = client.get(f"/tickets/{con7['id']}").json()
+    assert detail.get("brief"), f"no brief was stored for CON-7: {detail.get('brief')!r}"
+    assert detail["brief"]["html_path"] == str(html_path)
+
+    served = client.get(f"/tickets/{con7['id']}/brief")
+    assert served.status_code == 200, served.content
+    assert "text/html" in served["Content-Type"], served["Content-Type"]
+    assert served.content.decode() == html_body

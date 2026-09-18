@@ -18,6 +18,8 @@ type TaskHistoryEntry = components["schemas"]["TaskHistoryEntry"]
 type TaskCreate = components["schemas"]["TaskCreate"]
 type TaskStateIn = components["schemas"]["TaskStateIn"]
 type Alert = components["schemas"]["Alert"]
+type CronRun = components["schemas"]["CronRun"]
+type CronsSummary = components["schemas"]["CronsSummary"]
 
 /** The ten built-in statuses, in the canonical order `GET /api/statuses` returns them. */
 export const BUILT_IN_STATUSES: StatusItem[] = [
@@ -422,6 +424,40 @@ export function statefulAlerts(initial: Alert[]) {
     /** The rows the "server" would return now. */
     current: () => rows,
   }
+}
+
+let nextCronRunId = 1
+
+/**
+ * Builds a `CronRun`; ids auto-increment per test file. Defaults to a finished run triggered
+ * from the API that started and finished at the same instant, with nothing to report — a test
+ * that cares about a run in flight overrides `status`, `started_at` and `finished_at: null`.
+ */
+export function makeCronRun(overrides: Partial<CronRun> = {}): CronRun {
+  const id = overrides.id ?? nextCronRunId++
+  return {
+    id,
+    status: "finished",
+    trigger: "api",
+    summary: "",
+    error: "",
+    pid: null,
+    started_at: "2026-09-12T10:00:00Z",
+    created_at: "2026-09-12T10:00:00Z",
+    finished_at: "2026-09-12T10:00:00Z",
+    ...overrides,
+  }
+}
+
+/**
+ * MSW handler for `GET /api/crons/summary`. Pass a fixed summary, or a function returning the
+ * summary as the test's own state currently has it — the page polls this endpoint while a run
+ * is in flight, so every poll must see the state as it is now, not as it was at setup.
+ */
+export function cronsSummaryHandler(summary: CronsSummary | (() => CronsSummary)) {
+  return http.get("/api/crons/summary", () =>
+    HttpResponse.json(typeof summary === "function" ? summary() : summary),
+  )
 }
 
 /** MSW handler for `GET /api/alerts/summary` returning the given badge count. */

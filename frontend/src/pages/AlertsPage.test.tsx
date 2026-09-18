@@ -3,11 +3,19 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { components } from "@/api/schema.d.ts"
 import { AlertsPage } from "@/pages/AlertsPage"
-import { alertsHandler, makeAlert, recordRequests, statefulAlerts } from "@/test/handlers"
+import {
+  alertsHandler,
+  cronsSummaryHandler,
+  makeAlert,
+  makeCronRun,
+  recordRequests,
+  statefulAlerts,
+} from "@/test/handlers"
 import { server } from "@/test/msw"
 import { renderWithProviders } from "@/test/render"
 
 type PullRequestItem = components["schemas"]["PullRequestItem"]
+type CronsSummary = components["schemas"]["CronsSummary"]
 
 // Layout convention: alerts render in a <table>; each alert is a role="row" (plus one header
 // row). Rows are looked up by their accessible name (row text), so a row must contain the
@@ -176,5 +184,86 @@ describe("AlertsPage", () => {
     // ...and the row is gone, while the alert nobody dismissed stays.
     await waitFor(() => expect(screen.queryByText(unlinked.message)).toBeNull())
     expect(screen.getByText(newTicket.message)).toBeInTheDocument()
+  })
+
+  // Crons convention: the alerts page carries the one control that starts a cron pass, because
+  // a pass is what produces alerts. The control is a <button> named "Run crons", and the state
+  // of the crons lives beside it in a single role="status" element, so a person (and a test)
+  // reads one sentence rather than assembling one:
+  //   not running -> "Last run: finished <relative time of finished_at>"
+  //   running     -> "Running since <relative time of started_at>"
+  // The button is disabled while a run is in flight — the backend refuses a second pass
+  // anyway (C5.2), so offering the click would be a lie.
+  //
+  // Freshness convention: the page polls GET /api/crons/summary while a run is going, but a
+  // click must not wait for the next poll — after POST /api/crons/run succeeds the summary is
+  // re-read at once, which is why the assertions below hold within the default waitFor window.
+  describe("run crons", () => {
+    // Frozen "now" for deterministic relative times, as in SessionsPage.test.tsx.
+    const NOW = new Date("2026-09-12T12:00:00Z")
+
+    beforeEach(() => {
+      vi.setSystemTime(NOW)
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("run crons button posts to /api/crons/run and shows running state then last run status", async () => {
+      const user = userEvent.setup()
+      const requests = recordRequests()
+      const lastRun = makeCronRun({
+        id: 11,
+        status: "finished",
+        trigger: "command",
+        summary: "2 tickets imported, 1 pull request triaged",
+        started_at: "2026-09-12T09:55:00Z",
+        created_at: "2026-09-12T09:55:00Z",
+        finished_at: "2026-09-12T10:00:00Z", // 2 hours before NOW
+      })
+      const newRun = makeCronRun({
+        id: 12,
+        status: "running",
+        trigger: "api",
+        pid: 4242,
+        started_at: "2026-09-12T11:30:00Z", // 30 minutes before NOW
+        created_at: "2026-09-12T11:30:00Z",
+        finished_at: null,
+      })
+      // The summary the "server" would give right now. POSTing a run changes it, exactly as
+      // starting a pass changes it on the backend, so every later poll sees the run in flight.
+      let summary: CronsSummary = { running: false, last_run: lastRun }
+      const runRequests: string[] = []
+      server.use(
+        alertsHandler([]),
+        http.get("/api/pull-requests", () => HttpResponse.json([])),
+        cronsSummaryHandler(() => summary),
+        http.post("/api/crons/run", ({ request }) => {
+          runRequests.push(request.method)
+          summary = { running: true, last_run: newRun }
+          return HttpResponse.json(newRun, { status: 202 })
+        }),
+      )
+      renderWithProviders(<AlertsPage />)
+
+      // Nothing is running: the page says how the last pass ended and when, and offers the run.
+      const status = await screen.findByRole("status")
+      await waitFor(() => expect(status).toHaveTextContent(/last run: finished 2 hours ago/i))
+      const button = screen.getByRole("button", { name: /run crons/i })
+      expect(button).toBeEnabled()
+
+      await user.click(button)
+
+      // The click asked the backend to start a pass — as a POST, to the crons endpoint.
+      await waitFor(() => expect(runRequests).toEqual(["POST"]))
+      expect(requests).toContain("/api/crons/run")
+
+      // ...and with a pass in flight the page says so, and stops offering a second one.
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(/running since 30 minutes ago/i),
+      )
+      expect(screen.getByRole("button", { name: /run crons/i })).toBeDisabled()
+    })
   })
 })

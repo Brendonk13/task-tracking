@@ -22,6 +22,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tickets/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Tickets
+         * @description Import the Linear issues these URLs point at, whatever state they are in.
+         *
+         *     The cron only sweeps Todo, so this is how an issue in any other column — or one
+         *     assigned to someone else — becomes a ticket. Each URL gets its own answer, in the
+         *     order given: ``imported``, ``adopted`` (a hand-raised ticket gained its Linear
+         *     link), ``exists``, ``invalid_url`` or ``not_found``. A URL given twice is answered
+         *     once. When Linear itself cannot be reached no URL is to blame, so the whole call
+         *     answers 502, and the transaction takes back what earlier URLs had imported: a
+         *     caller who sees an error can send the same list again.
+         */
+        post: operations["tracker_api_tickets_import_tickets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tickets/summary": {
         parameters: {
             query?: never;
@@ -634,6 +662,26 @@ export interface components {
          * @enum {string}
          */
         SortOrder: "asc" | "desc";
+        /**
+         * TicketImportOutcome
+         * @enum {string}
+         */
+        TicketImportOutcome: "imported" | "adopted" | "exists" | "invalid_url" | "not_found";
+        /** TicketImportResult */
+        TicketImportResult: {
+            /** Url */
+            url: string;
+            outcome: components["schemas"]["TicketImportOutcome"];
+            /** Ticket Id */
+            ticket_id?: number | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** TicketImportIn */
+        TicketImportIn: {
+            /** Urls */
+            urls: string[];
+        };
         /** TicketsSummary */
         TicketsSummary: {
             /** Needs Human Eyes Count */
@@ -1025,6 +1073,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+        };
+    };
+    tracker_api_tickets_import_tickets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketImportIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketImportResult"][];
                 };
             };
         };

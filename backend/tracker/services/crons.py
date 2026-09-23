@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from tracker import models
 from tracker.integrations import github, linear, processes
-from tracker.services import briefs, linear_identifiers, pull_requests, tags, triage
+from tracker.services import briefs, linear_import, pull_requests, triage
 
 
 def start_run(trigger: models.CronRunTrigger | str, pid: int | None = None) -> models.CronRun:
@@ -118,15 +118,6 @@ REPO_DIR_STEPS = [
     step for step, names in STEP_SETTINGS.items() if REPO_DIRS_SETTING in names
 ]
 
-# Linear grades urgency 1 (most urgent) to 4, with 0 meaning "nobody said".
-PRIORITY_BY_LINEAR = {
-    0: models.Priority.NONE,
-    1: models.Priority.URGENT,
-    2: models.Priority.HIGH,
-    3: models.Priority.MEDIUM,
-    4: models.Priority.LOW,
-}
-
 
 def missing_settings(step: str) -> list[str]:
     """The names of the settings ``step`` needs that are blank."""
@@ -190,71 +181,27 @@ def fail_step(run: models.CronRun, step: str, error: Exception) -> models.Alert:
     )
 
 
-def announce_new_ticket(ticket: models.Ticket) -> models.Alert:
-    """Tell a human a ticket was born while nobody was watching.
-
-    The import is the only actor here, so the alerts page is where the news lands. The
-    message names the issue the way Linear does — identifier then title — because that
-    is what a person recognises it by, and the link carries the ticket itself.
-    """
-    return models.Alert.objects.create(
-        kind=models.AlertKind.NEW_TICKET,
-        ticket=ticket,
-        message=f"Imported {ticket.linear_identifier}: {ticket.title}",
-    )
-
-
 def check_new_tickets(run: models.CronRun) -> list[models.Ticket]:
-    """Import the Linear issues assigned to us as tickets.
+    """Import the Linear issues assigned to us and sitting in Todo as tickets.
 
-    An import is a birth, not an edit: the ticket arrives already holding these values,
-    so no ``field_change`` timeline entry is written for them. There is nobody to
-    attribute such a change to, and a reader wants the issue's history from Linear, not
-    a replay of the import.
+    Only Todo is swept: an issue already started was picked up somewhere else, and one
+    in the backlog is not ours to act on yet. An issue in any other state can still be
+    brought in by hand through ``POST /tickets/import``.
 
-    Only issues we have never seen before are born here. An issue a human already
-    raised a ticket for by hand — recognised by the identifier they pasted in as a
-    Linear URL — is adopted instead of duplicated: it gains the issue's ``linear_id``
-    and ``linear_identifier``, and keeps everything the human wrote, which they may
-    have worded that way on purpose. The cron runs every fifteen
-    minutes over the same open issues, so an issue that already has a ticket is left
-    untouched — not re-saved with identical values, which would move ``updated_at`` and
-    make every pass look like a change.
+    The cron runs every fifteen minutes over the same Todo column, so the rules for an
+    issue already tracked, or raised by hand first, matter on every pass; they live in
+    ``linear_import.Importer`` because the manual import keeps them too.
     """
     client = linear.LinearClient(settings.LINEAR_API_KEY)
-    issues = client.assigned_active_issues(settings.LINEAR_ASSIGNEE_EMAIL)
+    issues = client.assigned_todo_issues(settings.LINEAR_ASSIGNEE_EMAIL)
 
-    known = set(models.Ticket.objects.values_list("linear_id", flat=True))
-    unlinked = {}
-    for ticket in models.Ticket.objects.filter(linear_id__isnull=True):
-        identifier = ticket.linear_identifier or linear_identifiers.identifier_in_url(
-            ticket.linear_url
-        )
-        if identifier:
-            unlinked.setdefault(identifier.upper(), ticket)
-
+    importer = linear_import.Importer()
     imported = []
     for issue in issues:
-        if issue.id in known:
-            continue
-        adopted = unlinked.get(issue.identifier.upper())
-        if adopted is not None:
-            adopted.linear_id = issue.id
-            adopted.linear_identifier = issue.identifier
-            adopted.save(update_fields=["linear_id", "linear_identifier"])
-            continue
-        ticket = models.Ticket.objects.create(
-            title=issue.title,
-            description=issue.description,
-            priority=PRIORITY_BY_LINEAR[issue.priority],
-            linear_url=issue.url,
-            linear_id=issue.id,
-            linear_identifier=issue.identifier,
-        )
-        tags.set_tags(ticket, issue.project, issue.labels)
-        announce_new_ticket(ticket)
-        imported.append(ticket)
-    return imported
+        outcome, ticket_id = importer.import_issue(issue)
+        if outcome == linear_import.IMPORTED:
+            imported.append(ticket_id)
+    return list(models.Ticket.objects.filter(id__in=imported))
 
 
 def check_new_prs(run: models.CronRun) -> list[models.PullRequest]:

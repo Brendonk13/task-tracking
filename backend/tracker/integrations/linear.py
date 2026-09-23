@@ -19,19 +19,8 @@ API_URL = "https://api.linear.app/graphql"
 # Swapped by tests; ``None`` means "httpx, use your normal transport".
 transport: httpx.BaseTransport | None = None
 
-# One page of the issues assigned to a person and not yet finished. Completed and
-# cancelled issues are dropped by Linear rather than by us, so the wire stays small.
-ASSIGNED_ISSUES_QUERY = """
-query AssignedIssues($email: String!, $after: String) {
-  issues(
-    first: 50
-    after: $after
-    filter: {
-      assignee: { email: { eq: $email } }
-      state: { type: { nin: ["completed", "canceled"] } }
-    }
-  ) {
-    nodes {
+# The fields every query asks of an issue, in the shape ``LinearIssue.from_node`` reads.
+ISSUE_FIELDS = """
       id
       identifier
       title
@@ -42,15 +31,46 @@ query AssignedIssues($email: String!, $after: String) {
       state { name type }
       project { name }
       labels { nodes { name } }
-    }
-    pageInfo { hasNextPage endCursor }
-  }
-}
 """
+
+# One page of the issues assigned to a person and sitting in Todo. Linear calls that
+# column's state type ``unstarted``; the type is asked for rather than the name so a
+# team that renames the column is still read. Work already started, still in the
+# backlog, or finished is dropped by Linear rather than by us, so the wire stays small.
+ASSIGNED_ISSUES_QUERY = f"""
+query AssignedIssues($email: String!, $after: String) {{
+  issues(
+    first: 50
+    after: $after
+    filter: {{
+      assignee: {{ email: {{ eq: $email }} }}
+      state: {{ type: {{ eq: "unstarted" }} }}
+    }}
+  ) {{
+    nodes {{{ISSUE_FIELDS}    }}
+    pageInfo {{ hasNextPage endCursor }}
+  }}
+}}
+"""
+
+# One issue by identifier (``CON-7``); Linear's ``issue(id:)`` takes either that or
+# the UUID. No state filter: a person who names an issue wants it whatever its state.
+ISSUE_QUERY = f"""
+query Issue($id: String!) {{
+  issue(id: $id) {{{ISSUE_FIELDS}  }}
+}}
+"""
+
+# How Linear words the error for an ``issue(id:)`` that names nothing.
+NOT_FOUND_PREFIX = "Entity not found"
 
 
 class LinearError(RuntimeError):
     """Linear could not be reached, or answered with something we cannot use."""
+
+
+class LinearNotFound(LinearError):
+    """Linear answered, and said the thing asked for does not exist."""
 
 
 @dataclass(frozen=True)
@@ -97,8 +117,8 @@ class LinearClient:
         self._api_key = api_key
         self._transport = transport
 
-    def assigned_active_issues(self, email: str) -> list[LinearIssue]:
-        """Every unfinished issue assigned to ``email``, across all pages.
+    def assigned_todo_issues(self, email: str) -> list[LinearIssue]:
+        """Every issue assigned to ``email`` and in Todo, across all pages.
 
         Linear answers one page at a time, so a caller that read only the first page
         would silently drop work. The cursor comes from the server's ``pageInfo``
@@ -123,6 +143,19 @@ class LinearClient:
                 return issues
             after = cursor
 
+    def issue(self, identifier: str) -> LinearIssue | None:
+        """The issue ``identifier`` names, or ``None`` when Linear has no such issue.
+
+        Only Linear's own "not found" answer becomes ``None``. Any other error — a bad
+        key, an outage — still raises, because "no such issue" would be a lie about it.
+        """
+        try:
+            data = self._query(ISSUE_QUERY, {"id": identifier})
+        except LinearNotFound:
+            return None
+        node = data.get("issue")
+        return LinearIssue.from_node(node) if node else None
+
     def _query(self, query: str, variables: dict) -> dict:
         # The transport is looked up per call, never cached, so a test that swaps the
         # module attribute is obeyed by clients built before the swap.
@@ -143,6 +176,11 @@ class LinearClient:
             raise LinearError(f"Linear returned HTTP {response.status_code}")
         payload = response.json()
         if payload.get("errors"):
-            messages = "; ".join(e.get("message", "") for e in payload["errors"])
-            raise LinearError(f"Linear returned errors: {messages}")
+            messages = [e.get("message", "") for e in payload["errors"]]
+            error = (
+                LinearNotFound
+                if all(m.startswith(NOT_FOUND_PREFIX) for m in messages)
+                else LinearError
+            )
+            raise error(f"Linear returned errors: {'; '.join(messages)}")
         return payload["data"]

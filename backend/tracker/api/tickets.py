@@ -2,6 +2,8 @@ from enum import Enum
 from pathlib import Path
 from typing import List
 
+from django.conf import settings
+from django.db import transaction
 from django.db.models import Case, IntegerField, Prefetch, Value, When
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -10,7 +12,8 @@ from ninja.errors import HttpError
 from ninja.responses import Status
 
 from tracker import models, schemas
-from tracker.services import actors, changes, tags
+from tracker.integrations import linear
+from tracker.services import actors, changes, linear_import, tags
 from tracker.services import tasks as task_service
 from tracker.services import tickets as ticket_service
 
@@ -91,6 +94,28 @@ def create_ticket(request, payload: schemas.TicketCreate):
     )
     tags.set_tags(ticket, payload.project, payload.labels)
     return Status(201, _detail(ticket.id))
+
+
+@router.post("/import", response=List[schemas.TicketImportResult])
+def import_tickets(request, payload: schemas.TicketImportIn):
+    """Import the Linear issues these URLs point at, whatever state they are in.
+
+    The cron only sweeps Todo, so this is how an issue in any other column — or one
+    assigned to someone else — becomes a ticket. Each URL gets its own answer, in the
+    order given: ``imported``, ``adopted`` (a hand-raised ticket gained its Linear
+    link), ``exists``, ``invalid_url`` or ``not_found``. A URL given twice is answered
+    once. When Linear itself cannot be reached no URL is to blame, so the whole call
+    answers 502, and the transaction takes back what earlier URLs had imported: a
+    caller who sees an error can send the same list again.
+    """
+    if not settings.LINEAR_API_KEY:
+        raise HttpError(400, "LINEAR_API_KEY is not set, so Linear cannot be asked.")
+    client = linear.LinearClient(settings.LINEAR_API_KEY)
+    try:
+        with transaction.atomic():
+            return linear_import.import_urls(client, payload.urls)
+    except linear.LinearError as error:
+        raise HttpError(502, f"Linear could not be asked: {error}")
 
 
 @router.get("/summary", response=schemas.TicketsSummary)

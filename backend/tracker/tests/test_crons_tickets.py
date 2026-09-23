@@ -80,15 +80,15 @@ def test_assigned_linear_issues_become_tickets_with_identifier_priority_url_proj
     assert [e for e in detail["timeline"] if e["kind"] == "field_change"] == []
 
 
-def test_linear_request_carries_the_raw_api_key_and_only_asks_for_active_issues(
+def test_linear_request_carries_the_raw_api_key_and_only_asks_for_todo_issues(
     client, cron_settings, fake_processes, linear_transport
 ):
     """The request we put on the wire is safe and narrow (§4 C1.4, §5).
 
     Linear personal keys travel raw, so a ``Bearer `` prefix would be rejected.
     The query must also narrow the work server-side: only issues assigned to the
-    configured email, and only those in a state that is neither completed nor
-    canceled. Page 2 is served as well because page 1 says there is more; how many
+    configured email, and only those in Todo, whose state type Linear calls
+    ``unstarted``. Page 2 is served as well because page 1 says there is more; how many
     requests that takes is C1.5's business, so only the first one is examined here.
     """
     linear_transport.serve("linear/assigned_page1.json", "linear/assigned_page2.json")
@@ -104,8 +104,7 @@ def test_linear_request_carries_the_raw_api_key_and_only_asks_for_active_issues(
 
     body = linear_transport.bodies[0]
     query = body["query"]
-    assert "completed" in query and "canceled" in query, query
-    assert any(excluder in query for excluder in ("nin", "neq", "not")), query
+    assert 'state: { type: { eq: "unstarted" } }' in query, query
 
     asked = query + json.dumps(body.get("variables") or {})
     assert cron_settings.LINEAR_ASSIGNEE_EMAIL in asked, asked

@@ -1,0 +1,16 @@
+{
+  "errors": [
+    {
+      "message": "Entity not found: Issue",
+      "path": ["issue"],
+      "locations": [{ "line": 3, "column": 3 }],
+      "extensions": {
+        "type": "invalid input",
+        "code": "INPUT_ERROR",
+        "userError": true,
+        "userPresentableMessage": "Could not find referenced Issue."
+      }
+    }
+  ],
+  "data": null
+}

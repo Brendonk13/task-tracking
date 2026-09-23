@@ -16,7 +16,9 @@ Fixture provenance (``tracker/tests/fixtures``):
   — hand-authored in the captured envelope's shape, because the real capture had no
   code-change items and the brief skill needs a Linear connector this repo cannot enable.
 * ``linear/*.json`` — hand-authored against Linear's GraphQL response shape; no
-  ``LINEAR_API_KEY`` was configured when they were written.
+  ``LINEAR_API_KEY`` was configured when they were written. ``issue_not_found.json``
+  follows the "Entity not found" error Linear documents for an ``issue(id:)`` that
+  names nothing.
 """
 
 import json

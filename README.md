@@ -132,10 +132,12 @@ curl -s -X POST $API/tickets/$TID/needs-human-eyes -H 'Content-Type: application
 The tracker also pulls work in on its own. One **cron run** is one pass over the outside
 world, recorded as a `CronRun` row. A pass does four steps, always in this order:
 
-1. **Import Linear tickets.** Active issues assigned to `LINEAR_ASSIGNEE_EMAIL` become
-   tickets, with their identifier, priority, URL, project, and labels. An issue this app
-   already has a ticket for is left alone. A ticket a human raised by hand and pasted the
-   Linear URL into is adopted, not duplicated. Each new ticket raises a `new_ticket` alert.
+1. **Import Linear tickets.** Issues assigned to `LINEAR_ASSIGNEE_EMAIL` and in Todo (Linear
+   state type `unstarted`) become tickets, with their identifier, priority, URL, project,
+   and labels. Issues in other states are not imported; use `POST /api/tickets/import` for
+   those. An issue this app already has a ticket for is left alone. A ticket a human raised
+   by hand and pasted the Linear URL into is adopted, not duplicated. Each new ticket raises
+   a `new_ticket` alert.
 2. **Write briefs.** Every imported ticket that has never been handed to a brief session
    gets one: a headless Claude Code session running `/ticket-brief`, opus, high effort. The
    session row is written before the process starts, so it is visible on the sessions page
@@ -241,8 +243,8 @@ on.
 
 | Variable | What it is | Blank means |
 |---|---|---|
-| `LINEAR_API_KEY` | Linear personal API key, sent as the raw `Authorization` header. Used read-only. | Ticket import is skipped. |
-| `LINEAR_ASSIGNEE_EMAIL` | Issues assigned to this person are the ones imported. | Ticket import is skipped. |
+| `LINEAR_API_KEY` | Linear personal API key, sent as the raw `Authorization` header. Used read-only. | Ticket import is skipped, and `POST /api/tickets/import` answers `400`. |
+| `LINEAR_ASSIGNEE_EMAIL` | Issues assigned to this person and in Todo are the ones the cron imports. | Ticket import is skipped. |
 | `GITHUB_USER` | GitHub login whose open PRs are imported. Comments by this login count as answers, so they never become pending. | PR import and comment triage are skipped. |
 | `GITHUB_REPOS` | Repos to import from, comma separated `owner/repo`. | PR import is skipped. |
 | `REPO_DIRS` | Local checkout per repo, `repo=path;repo=path`. A brief session runs in the first one; a triage session runs in the one for its PR's repo. | Briefs and triage are skipped. A path that is not a directory skips both too, with one alert naming `REPO_DIRS` and the path. |
@@ -782,6 +784,36 @@ no document behind it is the same to a reader as never having been briefed.
 
 ```bash
 curl -s http://localhost:8000/api/tickets/1/brief -o brief.html
+```
+
+#### `POST /api/tickets/import`
+
+Imports the Linear issues that a list of URLs points to. Use it for issues the cron does
+not import: issues that are not in Todo, or that are assigned to another person. The
+issue's state and assignee are not checked. The rules are the same as the cron's: a new
+ticket gets tags and a `new_ticket` alert, and a hand-made ticket with the same identifier
+is adopted.
+
+Body: `{"urls": ["https://linear.app/avantos/issue/CON-9/...", ...]}`. The response has one
+result for each different URL, in the order you sent them. A URL that you send two times
+gets one result. Each result is `{url, outcome, ticket_id, message}`, and `outcome` is one
+of:
+
+| `outcome` | Meaning | `ticket_id` |
+|---|---|---|
+| `imported` | A new ticket was made. | The new ticket. |
+| `adopted` | A hand-made ticket for this issue got its Linear link. | That ticket. |
+| `exists` | A ticket for this issue already exists. Nothing changed. | That ticket. |
+| `invalid_url` | The URL has no `/issue/<IDENTIFIER>` in it. Linear was not asked. | `null` |
+| `not_found` | Linear has no issue with that identifier. | `null` |
+
+`400` when `LINEAR_API_KEY` is not set. `502` when Linear cannot be reached or rejects the
+request. The call then imports nothing, also for the URLs before the failure, so you can
+send the same list again.
+
+```bash
+curl -s -X POST http://localhost:8000/api/tickets/import -H 'Content-Type: application/json' \
+  -d '{"urls": ["https://linear.app/avantos/issue/CON-9/retry-the-webhook"]}'
 ```
 
 ### Tasks

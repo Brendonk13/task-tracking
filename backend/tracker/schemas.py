@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from enum import Enum
 
 from ninja import Schema
 from pydantic import Field, field_validator, model_validator
@@ -485,3 +486,22 @@ class PullRequestPatch(Schema):
 
     ticket_id: int
     actor_session_id: str
+
+
+class TicketImportIn(Schema):
+    urls: list[str]
+
+
+class TicketImportOutcome(str, Enum):
+    imported = "imported"
+    adopted = "adopted"
+    exists = "exists"
+    invalid_url = "invalid_url"
+    not_found = "not_found"
+
+
+class TicketImportResult(Schema):
+    url: str
+    outcome: TicketImportOutcome
+    ticket_id: int | None = None
+    message: str | None = None

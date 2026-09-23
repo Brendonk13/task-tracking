@@ -241,7 +241,6 @@ on.
 
 | Variable | What it is | Blank means |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Key for the backend's own LLM calls. | Not read by the cron; no step depends on it. |
 | `LINEAR_API_KEY` | Linear personal API key, sent as the raw `Authorization` header. Used read-only. | Ticket import is skipped. |
 | `LINEAR_ASSIGNEE_EMAIL` | Issues assigned to this person are the ones imported. | Ticket import is skipped. |
 | `GITHUB_USER` | GitHub login whose open PRs are imported. Comments by this login count as answers, so they never become pending. | PR import and comment triage are skipped. |

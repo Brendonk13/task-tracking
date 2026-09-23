@@ -17,10 +17,8 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Reads backend/.env, which is gitignored. Keeps ANTHROPIC_API_KEY out of the repo.
+# Reads backend/.env, which is gitignored. Keeps LINEAR_API_KEY out of the repo.
 load_dotenv(BASE_DIR / ".env")
-
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 SECRET_KEY = "django-insecure-task-tracking-local-dev-only"
 
